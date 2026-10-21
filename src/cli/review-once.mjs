@@ -11,6 +11,7 @@
 import path from "node:path";
 import { loadConfig, secret } from "../config.mjs";
 import { createGithubClient } from "../github/client.mjs";
+import { matchRepository } from "../github/scope.mjs";
 import { openStore } from "../proposal/store.mjs";
 import { runReview } from "../review-run.mjs";
 
@@ -39,6 +40,10 @@ async function main() {
   }
 
   const checkoutDir = path.resolve(args.dir ?? path.join(cfg.checkout.root, owner, repo));
+  const scope = matchRepository(`${owner}/${repo}`, cfg.github);
+  if (!scope.allowed) {
+    console.log(`note: ${owner}/${repo} is outside the configured scope (${scope.reason}); a run you asked for by number proceeds anyway`);
+  }
   const store = openStore(args.state ?? process.env.LAIDBACK_STATE_DB ?? "data/state.db");
   const client = createGithubClient({
     baseUrl: process.env.LAIDBACK_GH_API || "https://api.github.com",

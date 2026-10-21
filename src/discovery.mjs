@@ -7,6 +7,8 @@
  * effort and say so in the reason they return.
  */
 
+import { scopeForSearchHit } from "./github/scope.mjs";
+
 const AUTO_ASSIGN_WINDOW_MS = 5 * 60 * 1000;
 
 export function isAssignedTo(pr, me) {
@@ -123,6 +125,13 @@ export async function findCandidates({ cfg, client, store, now = new Date() }) {
     }
     const located = repositoryFromSearchHit(item);
     if (!located) continue;
+    // Scope before anything else: an out-of-sight repository costs one search result, not a pull
+    // fetch, a timeline fetch and a CODEOWNERS fetch.
+    const scope = scopeForSearchHit(item, cfg.github);
+    if (!scope.allowed) {
+      rejected.push({ pr: located, reason: scope.reason });
+      continue;
+    }
     if (item.updated_at && item.updated_at > newest) newest = item.updated_at;
 
     const pr = await client.getPull(located.owner, located.repo, located.number);

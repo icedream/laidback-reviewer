@@ -107,6 +107,22 @@ rewrite that fails any of that is discarded and the configured lines are used.
 
 ## Which PRs trigger it
 
+Repositories are settled first. `github.orgs` lists owners, `github.repos` lists `owner/name`
+patterns where `*` covers one path segment and `?` one character, and `github.deny` outranks both:
+
+```yaml
+github:
+  orgs: [example-corp]
+  repos: [other-org/runbook]
+  deny: [example-corp/secret-*]
+```
+
+With both allow lists empty the bot reviews nothing, which is the default worth having for a bot that
+posts from your own account. `orgs: ["*"]` is the wide setting that takes every repository the token
+sees. The filter runs on the search result, before `GET /pulls/N`, so an ignored repository costs one
+search hit, no pull fetch and no model time, and the cycle log says why: `skip … matches github.deny
+"example-corp/secret-*"`.
+
 `assignee:<you>` is already the direct case: GitHub only ever assigns PRs to individual users, and a
 team review request (`review_requested` with `requested_reviewer.type: "Team"`) never touches the
 assignee list. What the API does not tell you is provenance, so `assignment.policy` is a choice:

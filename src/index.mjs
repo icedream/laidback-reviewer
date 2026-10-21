@@ -6,6 +6,7 @@
 
 import { loadConfig, secret } from "./config.mjs";
 import { createGithubClient } from "./github/client.mjs";
+import { describeScope } from "./github/scope.mjs";
 import { probeContentsReadOnly } from "./github/token-probe.mjs";
 import { createSlackGate } from "./gate/slack.mjs";
 import { runLoop } from "./loop.mjs";
@@ -16,7 +17,7 @@ function startupSummary({ cfg, store }) {
   console.log(
     [
       `laidback-reviewer watching assignee=${cfg.github.me}`,
-      `  scope: ${cfg.github.orgs.join(", ") || "any"}${cfg.github.repos.length ? ` + ${cfg.github.repos.join(", ")}` : ""}`,
+      `  scope: ${describeScope(cfg.github)}`,
       `  assignment policy: ${cfg.assignment.policy}, review requests: ${cfg.assignment.includeReviewRequests}`,
       `  model: ${cfg.agent.model.provider}/${cfg.agent.model.id} (thinking ${cfg.agent.model.thinking}, ${cfg.agent.model.busyRetries} busy retries at ${cfg.agent.model.busyBackoffMs}ms)`,
       `  agent: ${cfg.agent.name} from ${cfg.agent.agentDir}`,
@@ -50,11 +51,13 @@ async function main() {
   startupSummary({ cfg, store });
 
   // The design assumes the credential cannot write repository contents. Check before the first cycle,
-  // not after a review posts something.
-  const probeRepo = cfg.github.probeRepo || cfg.github.repos[0] || "";
+  // not after a review posts something. A glob in github.repos is not a repository, so only a literal
+  // owner/name can stand in for the probe target.
+  const literalRepo = (cfg.github.repos ?? []).find((pattern) => !/[*?]/.test(pattern));
+  const probeRepo = cfg.github.probeRepo || literalRepo || "";
   const probe = probeRepo
     ? await probeContentsReadOnly({ client, repo: probeRepo, log: (line) => console.log(`  ${line}`) })
-    : { verdict: "skipped", detail: "github.probeRepo is unset and github.repos is empty" };
+    : { verdict: "skipped", detail: "github.probeRepo is unset and github.repos holds no literal owner/name" };
   if (probe.verdict === "can_write") {
     throw new Error(`refusing to start: the token can write repository contents (${probe.detail})`);
   }

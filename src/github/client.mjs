@@ -81,8 +81,8 @@ export function createGithubClient({ baseUrl = "https://api.github.com", token, 
       request("GET", `${repoPath(owner, repo)}/pulls?head=${encodeURIComponent(`${owner}:${branch}`)}&state=all&per_page=5`),
     listTimeline: (owner, repo, pr) => request("GET", `${repoPath(owner, repo)}/issues/${pr}/timeline?per_page=100`),
     /**
-     * Search cannot OR qualifiers, so the org/repo allowlist is applied client-side by
-     * matchesScope(). A wide search plus a narrow filter also keeps the query cacheable.
+     * Search cannot OR qualifiers, so the repository allowlist is applied client-side by
+     * src/github/scope.mjs. A wide search plus a narrow filter also keeps the query cacheable.
      */
     searchAssigned: ({ me, sinceIso }) => {
       const query = `is:pr is:open archived:false assignee:${me} updated:>=${sinceIso.slice(0, 10)}`;
@@ -98,12 +98,7 @@ export function createGithubClient({ baseUrl = "https://api.github.com", token, 
   };
 }
 
-/** Allowlist filter for search results: `repository_url` carries owner/name. */
-export function matchesScope(item, { orgs = [], repos = [] }) {
-  const url = item?.repository_url ?? "";
-  const fullName = url.replace(/^.*\/repos\//, "");
-  if (!fullName) return false;
-  if (repos.length && repos.includes(fullName)) return true;
-  if (!orgs.length) return repos.length === 0;
-  return orgs.includes(fullName.split("/")[0]);
+/** Full name ("owner/name") as a search hit reports it. */
+export function repositoryFullName(item) {
+  return String(item?.repository_url ?? "").replace(/^.*\/repos\//, "");
 }

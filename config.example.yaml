@@ -4,9 +4,10 @@
 github:
   me: octocat                       # the username assignments are matched against
   tokenEnv: LAIDBACK_GH_TOKEN     # fine-grained PAT: Pull requests RW, Contents RO, Metadata RO
-  orgs: []                        # orgs to accept, e.g. [example-corp]; empty with repos: [] = any repo the token sees
-  repos: []                         # empty = every repo in the orgs list
-  probeRepo: ""                     # owner/name used for the startup scope probe; falls back to repos[0]
+  orgs: []                          # owners to accept, e.g. [example-corp]; every repo under them
+  repos: []                         # owner/name patterns, * for one segment: [example-corp/orders-*]
+  deny: []                          # wins over orgs and repos; keeps a repo out even if a list names it
+  probeRepo: ""                     # literal owner/name for the startup scope probe; falls back to the first literal entry in repos
   pollIntervalMs: 120000
   searchAgeHours: 24
 
