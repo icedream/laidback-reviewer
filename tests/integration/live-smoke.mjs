@@ -98,6 +98,8 @@ const client = createGithubClient({ baseUrl: githubBaseUrl, token: "smoke-token"
 
 console.log(`model ${provider}/${modelId} (thinking ${thinking}), agent ${agentName}`);
 console.log(`fixture ${fixture.dir}, head ${fixture.head.sha.slice(0, 8)}, ${fixture.files.length} files`);
+// The record path is known up front. A run that is interrupted still leaves it on disk.
+console.log(`record will be written to ${path.join(dir, "reviews", `${fixture.owner}-${fixture.repo}-${fixture.pr}-${fixture.head.sha.slice(0, 8)}.md`)}`);
 console.log(`planted issues: ${fixture.planted.map((item) => item.id).join(", ")}`);
 console.log(`ticket access: ${jiraMode}`);
 
@@ -146,3 +148,6 @@ if (result) {
 store.close();
 github.close();
 console.log(`\ntmp tree kept for inspection: ${dir}`);
+// The MCP server this run spawned keeps stdio handles open, so the process would otherwise sit idle
+// after printing everything.
+process.exit(process.exitCode ?? 0);
