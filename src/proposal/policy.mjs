@@ -1,0 +1,148 @@
+/**
+ * Review composition and policy.
+ *
+ * The agent proposes; this module decides what actually reaches GitHub. The default action on both
+ * verdict axes is `hint`, because an approval from my account can clear a merge gate and a
+ * requested change can block one, and a model should not move either by itself.
+ */
+
+import { anchorComment } from "../github/anchoring.mjs";
+
+export const VERDICT_EVENT = {
+  approve: "APPROVE",
+  request_changes: "REQUEST_CHANGES",
+  comment: "COMMENT",
+};
+
+const VERDICT_ACTION = {
+  approve: (cfg) => cfg.reviews.approve,
+  request_changes: (cfg) => cfg.reviews.requestChanges,
+  comment: () => "submit",
+};
+
+function verdictLineFor(verdict, action, cfg, proposal) {
+  if (action !== "hint") return "";
+  if (verdict === "approve") return cfg.reviews.hintWording.approve;
+  if (verdict === "request_changes") {
+    const blockers = (proposal?.blocking ?? []).filter(Boolean);
+    const base = cfg.reviews.hintWording.requestChanges;
+    return blockers.length ? `${base} Blocking: ${blockers.join("; ")}` : base;
+  }
+  return "";
+}
+
+/** Assemble the published body. Empty slots are skipped, order is fixed. */
+export function assembleBody({ prefix, body, verdictLine, suffix }) {
+  return [prefix, body, verdictLine, suffix].map((part) => (part ?? "").trim()).filter(Boolean).join("\n\n");
+}
+
+/**
+ * Validate a rephrased banner slot against the configured original.
+ *
+ * The rephrase call exists for text flow only. It must not add a claim, a commitment, a link or a
+ * mention, so anything that was not in the source is a rejection and the literal text is used.
+ */
+export function validateBannerSlot(original, rewritten, { label = "banner" } = {}) {
+  if (!original) return { ok: !rewritten, reason: rewritten ? `${label}: rephrased an empty slot` : "" };
+  const text = (rewritten ?? "").trim();
+  if (!text) return { ok: false, reason: `${label}: rephrase returned nothing` };
+  if (text.split("\n").length > 2) return { ok: false, reason: `${label}: more than two lines` };
+  if (text.length > original.length * 3 + 20) return { ok: false, reason: `${label}: far longer than the source` };
+
+  const committed = /\b(approv\w*|merge\w*|lgtm|ship it|accept\w*)\b/i;
+  if (committed.test(text) && !committed.test(original)) {
+    return { ok: false, reason: `${label}: introduces a verdict or merge claim` };
+  }
+  if (/https?:\/\//.test(text) && !/https?:\/\//.test(original)) {
+    return { ok: false, reason: `${label}: introduces a link` };
+  }
+  if (/@[a-z0-9-]{2,}/i.test(text) && !/@[a-z0-9-]{2,}/i.test(original)) {
+    return { ok: false, reason: `${label}: introduces a mention` };
+  }
+  const tags = (s) => new Set([...String(s).matchAll(/<\/?([a-zA-Z][a-zA-Z0-9]*)\b/g)].map((m) => m[1].toLowerCase()));
+  for (const tag of tags(text)) {
+    if (!tags(original).has(tag)) return { ok: false, reason: `${label}: introduces <${tag}> markup` };
+  }
+
+  // A rewrite that shares no real wording with the source is a new sentence, not a rephrase.
+  const STOP = new Set(["the", "this", "that", "with", "from", "for", "and", "not", "you", "your", "are", "was", "were", "will", "have", "been"]);
+  const words = (s) => new Set((String(s).toLowerCase().match(/[a-z0-9]{3,}/g) ?? []).filter((word) => !STOP.has(word)));
+  const originalWords = words(original);
+  const shared = [...words(text)].filter((word) => originalWords.has(word)).length;
+  if (shared < 2) return { ok: false, reason: `${label}: shares no wording with the source` };
+  return { ok: true, reason: "" };
+}
+
+/**
+ * @param proposal   what the agent proposed (body, verdict, comments, blocking, gates)
+ * @param cfg        validated config
+ * @param files      `GET /pulls/N/files` result for the current head
+ * @param headSha    the head the review is pinned to
+ */
+export function composeReview({ proposal, cfg, files, headSha }) {
+  const decisions = [];
+  const notes = [];
+
+  if (!VERDICT_EVENT[proposal?.verdict]) {
+    throw new Error(`unknown verdict: ${proposal?.verdict}`);
+  }
+
+  const anchored = [];
+  for (const proposed of proposal.comments ?? []) {
+    const result = anchorComment(proposed, files);
+    if (result.status === "dropped") {
+      notes.push(`dropped comment: ${result.note}`);
+      continue;
+    }
+    if (result.status === "adjusted") {
+      result.comment.note = result.note;
+      notes.push(`anchored comment: ${result.note}`);
+    }
+    if (proposed.suggestion) {
+      // A suggestion block has to be the fenced last thing in the comment body.
+      result.comment.body = `${result.comment.body.trim()}\n\n\`\`\`suggestion\n${proposed.suggestion}\n\`\`\``;
+    }
+    anchored.push(result.comment);
+  }
+
+  const cap = cfg.reviews.maxComments;
+  const comments = anchored.slice(0, cap);
+  if (anchored.length > cap) notes.push(`dropped ${anchored.length - cap} comments over maxComments=${cap}`);
+
+  const action = VERDICT_ACTION[proposal.verdict](cfg);
+  decisions.push(`verdict ${proposal.verdict} -> ${action}`);
+
+  let event = "COMMENT";
+  let verdictLine = "";
+  if (action === "submit") {
+    event = VERDICT_EVENT[proposal.verdict];
+  } else if (action === "hint") {
+    verdictLine = verdictLineFor(proposal.verdict, action, cfg, proposal);
+  }
+
+  const body = assembleBody({
+    prefix: proposal.banner?.prefix ?? cfg.banner.prefix,
+    body: proposal.body ?? "",
+    verdictLine,
+    suffix: proposal.banner?.suffix ?? cfg.banner.suffix,
+  });
+
+  if (!(proposal.body ?? "").trim() && !comments.length) {
+    // A banner alone is not a review: refuse rather than post an empty check-in on someone's PR.
+    throw new Error("proposed review is empty: no body and no comments");
+  }
+
+  const payload = { commit_id: headSha, event, body, comments };
+  return {
+    payload,
+    decisions,
+    notes,
+    action,
+    event,
+    verdict: proposal.verdict,
+    comments: payload.comments,
+    // Kept so an approved review can be re-composed later without re-applying the banner twice.
+    proposalBody: proposal.body ?? "",
+    proposalBlocking: proposal.blocking ?? [],
+  };
+}

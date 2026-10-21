@@ -1,0 +1,207 @@
+/**
+ * One review run.
+ *
+ * Fetch → agent session → proposal → policy → gate → post. The agent never reaches GitHub: it records
+ * a proposal, and only the last step can write, and only if the policy and the gate allow it.
+ */
+
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { loadAgentDef, nonInteractiveContract } from "./agent/agent-def.mjs";
+import { createReviewGuard } from "./agent/guard.mjs";
+import { buildTaskPrompt } from "./agent/prompt.mjs";
+import { rephraseBanner } from "./agent/rephrase.mjs";
+import { REVIEW_TOOLS, createReviewSession } from "./agent/runtime.mjs";
+import { createProposalCollector, createReviewTools } from "./agent/tools.mjs";
+import { configureGitAuth, configureGoModules, prepareComparisonDir } from "./checkout.mjs";
+import { HeadMovedError, submitReview } from "./github/poster.mjs";
+import { createGate, renderGateSummary } from "./gate/gate.mjs";
+import { writeArtifact } from "./proposal/artifact.mjs";
+import { composeReview } from "./proposal/policy.mjs";
+
+export function toPrView(json, { owner, repo }) {
+  return {
+    number: json.number,
+    repository: `${owner}/${repo}`,
+    title: json.title,
+    body: json.body ?? "",
+    draft: !!json.draft,
+    html_url: json.html_url,
+    base: { ref: json.base?.ref, sha: json.base?.sha },
+    head: { ref: json.head?.ref, sha: json.head?.sha },
+    assignees: (json.assignees ?? []).map((assignee) => assignee.login),
+    author: json.user?.login,
+    raw: json,
+  };
+}
+
+export async function runReview({ cfg, store, client, task, piAgentDir, artifactDir, slack = null, log = console.error }) {
+  const { owner, repo, pr: prNumber, checkoutDir } = task;
+  const prJson = await client.getPull(owner, repo, prNumber);
+  const pr = toPrView(prJson, { owner, repo });
+  const headSha = pr.head.sha;
+
+  if (pr.draft && cfg.assignment.skipDraft) {
+    return { skipped: "draft", pr };
+  }
+
+  const files = await client.listFiles(owner, repo, prNumber);
+  const gate = createGate({ cfg, store, log, slack });
+
+  const preGate = await gate.open({
+    stage: "before_review",
+    reviewId: null,
+    summary: `Review requested for ${pr.repository}#${pr.number} at ${headSha.slice(0, 8)}: ${pr.title}`,
+  });
+  if (preGate.state !== "approved") {
+    return { skipped: "gate_queued", gate: preGate, pr };
+  }
+
+  const [reviews, comments] = await Promise.all([
+    client.listReviews(owner, repo, prNumber),
+    client.listInlineComments(owner, repo, prNumber),
+  ]);
+
+  if (store.alreadyHandled({ owner, repo, pr: prNumber, head_sha: headSha }) && !cfg.reviews.rereviewOnPush) {
+    return { skipped: "already_reviewed", pr };
+  }
+
+  const agentDef = loadAgentDef(cfg.agent.agentDir, cfg.agent.name);
+
+  // Comparison fetches (trunk, tags, a dependency's own repository) run under the comparison root
+  // with the same read-only credential, so a version claim is read from source rather than inferred.
+  const compareDir = prepareComparisonDir({ cfg, log });
+  if (cfg.checkout.mode === "clone") {
+    configureGitAuth({ cfg, dir: checkoutDir, log });
+    configureGoModules({ cfg, dir: checkoutDir, log });
+  }
+
+  const collector = createProposalCollector();
+  const guard = createReviewGuard({
+    allowHosts: cfg.tools.allowHosts,
+    bashEnabled: cfg.tools.bash,
+    writableRoots: [cfg.checkout.scratch, "/tmp"],
+  });
+
+  const contract = nonInteractiveContract({ cfg, checkoutDir, prRef: pr.repository });
+  const prompt = buildTaskPrompt({
+    pr,
+    files,
+    checkoutDir,
+    headSha,
+    prior: { reviews, comments },
+    compareDir,
+    // Context pickup (prior sessions for this PR or stack) lands in phase 6.
+    context: null,
+  });
+
+  const sessionManager = cfg.context.sessionDir
+    ? SessionManager.create(checkoutDir, cfg.context.sessionDir)
+    : SessionManager.inMemory(checkoutDir);
+
+  const { session } = await createReviewSession({
+    cfg,
+    agentDir: piAgentDir,
+    cwd: checkoutDir,
+    agentDef,
+    contract,
+    extensionFactories: [guard.extension],
+    customTools: createReviewTools({ collector, limits: { maxComments: cfg.reviews.maxComments } }),
+    sessionManager,
+    tools: REVIEW_TOOLS(cfg),
+  });
+
+  log(`review ${pr.repository}#${pr.number} at ${headSha.slice(0, 8)}: agent ${agentDef.name}, ${files.length} changed files`);
+  await session.prompt(prompt);
+  session.dispose();
+
+  const notes = [];
+  if (!collector.submitted) notes.push("the run ended without review_submit; composing from what was recorded");
+  for (const entry of guard.log) {
+    notes.push(`blocked ${entry.tool}: ${entry.reason}`);
+    log(`blocked ${entry.tool}: ${entry.reason}`);
+  }
+
+  const proposal = collector.asProposal();
+  if (!proposal.verdict) {
+    // A model that left findings but no verdict still gets a review sent, as a comment.
+    proposal.verdict = proposal.comments.length || proposal.body ? "comment" : null;
+    if (proposal.verdict) notes.push("no verdict recorded by the model: treated as comment");
+  }
+  if (!proposal.verdict) throw new Error(`review run produced nothing for ${pr.repository}#${pr.number}`);
+
+  if (cfg.banner.rephrase) {
+    try {
+      proposal.banner = await rephraseBanner({ cfg, agentDir: piAgentDir, cwd: checkoutDir, prRef: `${pr.repository}#${pr.number}`, log });
+    } catch (error) {
+      // A failed rewrite is a wording problem, not a reason to lose the review.
+      notes.push(`banner rephrase failed: ${error.message}; using the configured text`);
+    }
+  }
+
+  const composed = composeReview({ proposal, cfg, files, headSha });
+  const reviewId = store.saveReview({ owner, repo, pr: prNumber, head_sha: headSha, composed, dryRun: cfg.reviews.dryRun, notes });
+  const artifactPath = writeArtifact({
+    dir: artifactDir,
+    pr,
+    headSha,
+    collector,
+    composed,
+    notes,
+    decisions: composed.decisions,
+    gate: null,
+    posted: null,
+  });
+  store.setArtifact({ id: reviewId, path: artifactPath });
+  store.markSeen({ owner, repo, pr: prNumber, head_sha: headSha });
+
+  const gateState = await gate.open({
+    stage: "before_post",
+    reviewId,
+    summary: renderGateSummary({ pr, headSha, composed, notes, decisions: composed.decisions }),
+  });
+
+  // The artifact is written twice on purpose: once before anything can fail, then again with the
+  // posting outcome, so the record never claims a review was sent when the gate held it.
+  const finish = (extra) => {
+    const outcome = { pr, headSha, composed, reviewId, artifactPath, dryRun: cfg.reviews.dryRun, gate: gateState, blocked: guard.log, ...extra };
+    writeArtifact({
+      dir: artifactDir,
+      pr,
+      headSha,
+      collector,
+      composed,
+      notes,
+      decisions: composed.decisions,
+      gate: gateState,
+      posted: outcome.posted ?? null,
+    });
+    return outcome;
+  };
+
+  if (cfg.reviews.dryRun) {
+    log(`dry run: nothing sent. ${artifactPath}`);
+    return finish({ posted: null });
+  }
+  if (gateState.state !== "approved") {
+    log(`review queued at gate ${gateState.gateId}; nothing sent`);
+    return finish({ posted: null });
+  }
+
+  const posted = await postComposed({ client, owner, repo, prNumber, headSha, proposal, cfg, composed, log });
+  store.markPosted({ id: reviewId, github_review_id: posted.id, html_url: posted.html_url });
+
+  return finish({ posted });
+}
+
+/** Post, and if the head moved under the run, re-anchor the same proposal against the new head. */
+async function postComposed({ client, owner, repo, prNumber, headSha, proposal, cfg, composed, log }) {
+  try {
+    return await submitReview({ client, owner, repo, pr: prNumber, payload: composed.payload, expectedHeadSha: headSha });
+  } catch (error) {
+    if (!(error instanceof HeadMovedError)) throw error;
+    log(`${error.message}; re-anchoring against the new head`);
+    const freshFiles = await client.listFiles(owner, repo, prNumber);
+    const again = composeReview({ proposal, cfg, files: freshFiles, headSha: error.actual });
+    return submitReview({ client, owner, repo, pr: prNumber, payload: again.payload, expectedHeadSha: error.actual });
+  }
+}
