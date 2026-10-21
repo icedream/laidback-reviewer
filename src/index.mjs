@@ -7,7 +7,7 @@
 import { loadConfig, secret } from "./config.mjs";
 import { createGithubClient } from "./github/client.mjs";
 import { describeScope } from "./github/scope.mjs";
-import { createSlackGate } from "./gate/slack.mjs";
+import { slackGateFromConfig } from "./gate/slack.mjs";
 import { runLoop } from "./loop.mjs";
 import { openStore } from "./proposal/store.mjs";
 
@@ -41,13 +41,7 @@ async function main() {
     token: secret(cfg, cfg.github.tokenEnv),
   });
 
-  let slack = null;
-  if (cfg.gate.channel === "slack") {
-    const token = secret(cfg, cfg.gate.slack.tokenEnv);
-    const cookie = secret(cfg, cfg.gate.slack.cookieEnv);
-    if (!token) console.log(`gate.channel=slack but ${cfg.gate.slack.tokenEnv} is unset: gates stay queued`);
-    else slack = createSlackGate({ cfg, store, token, cookie, log: (line) => console.log(`  ${line}`) });
-  }
+  const slack = slackGateFromConfig({ cfg, store, log: (line) => console.log(`  ${line}`) });
 
   startupSummary({ cfg, store });
 

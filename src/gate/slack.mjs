@@ -39,6 +39,26 @@ export function parseReactions(message, { allowUsers = [], reactions = {} } = {}
   return null;
 }
 
+/**
+ * Build the transport from config and environment so every entry point presents a gate the same way.
+ * Returns null, with the reason logged, when the channel is not slack or its credential is absent;
+ * the gate still queues in SQLite and can be decided with src/cli/gate.mjs.
+ */
+export function slackGateFromConfig({ cfg, store, env = process.env, log = () => {} }) {
+  if (cfg.gate.channel !== "slack") return null;
+  const slack = cfg.gate.slack;
+  const token = (env[slack.tokenEnv] ?? "").trim();
+  const cookie = (env[slack.cookieEnv] ?? "").trim();
+  const webhook = (env[slack.webhookUrlEnv] ?? "").trim();
+  const missing = slack.transport === "webhook" ? !webhook : !token;
+  if (missing) {
+    const name = slack.transport === "webhook" ? slack.webhookUrlEnv : slack.tokenEnv;
+    log(`gate.channel=slack but ${name} is unset: gates stay queued and are decided with node src/cli/gate.mjs`);
+    return null;
+  }
+  return createSlackGate({ cfg, store, token, cookie, log });
+}
+
 export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
   const slack = cfg.gate.slack;
   // Overridable for a proxy or a test double; the shape of the API is the same.
