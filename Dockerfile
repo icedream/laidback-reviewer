@@ -1,6 +1,6 @@
-# Node 24 is the LTS line (supported to 2028); Node 26 turns LTS on 2026-10-28, after which the bump
-# is one flag: docker build --build-arg NODE_VERSION=26-slim .
-ARG NODE_VERSION=24-slim
+# Node 26 is Active LTS from 2026-10-28; 24-slim remains available as a build arg for a host that has
+# not moved: docker build --build-arg NODE_VERSION=24-slim .
+ARG NODE_VERSION=26-slim
 FROM node:${NODE_VERSION}
 
 # Pinned so the bot runs gates the way CI runs them. Repositories pin their own golangci-lint, and the

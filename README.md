@@ -284,11 +284,11 @@ npm run test:docker     # builds the image, then mounts tests/ and runs node --t
 ```
 
 The image carries no compiler: the state store uses Node's built-in `node:sqlite`, so `npm ci` needs
-no python or node-gyp. Its toolchain is Node 24 (`NODE_VERSION` build arg; the Node 26 build is
-verified green and becomes LTS on 2026-10-28), Go 1.27.3 with `GOTOOLCHAIN=auto` so a repository
-declaring a newer Go fetches its own, `golangci-lint` v2.15.0, and `gh` 2.103.0 with `gh-stack`
-installed from the extension's release asset, because `gh extension install` wants a GitHub token that
-a build has no reason to hold.
+no python or node-gyp. Its toolchain is Node 26 (`NODE_VERSION` build arg; Active LTS from
+2026-10-28, with `--build-arg NODE_VERSION=24-slim` for the line maintained to 2028-04-30), Go 1.27.3
+with `GOTOOLCHAIN=auto` so a repository declaring a newer Go fetches its own, `golangci-lint` v2.15.0,
+and `gh` 2.103.0 with `gh-stack` installed from the extension's release asset, because
+`gh extension install` wants a GitHub token that a build has no reason to hold.
 
 `npm run smoke:strata` runs the same fixture with the real `pr-review` agent and skills against your
 model and prints the composed review. Structural checks only; the review itself is for you to read.
