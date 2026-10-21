@@ -156,7 +156,8 @@ review that comes out names it.
 `npm run smoke:strata` runs the same fixture with the real `pr-review` agent and skills against your
 model and prints the composed review. Structural checks only; the review itself is for you to read.
 It reads the fake ticket by default (`--jira fake`); `--jira real` uses the host agent dir's `mcp.json`
-and its OAuth cache instead.
+and its OAuth cache instead. `--policy hint|submit|drop` picks which verdict shape the printout shows;
+the run itself never posts.
 
 Two model calls can collide: the loop and your interactive Pi session share one local inference
 server, which holds one prompt at a time. The loop runs one review at a time and backs off on a busy

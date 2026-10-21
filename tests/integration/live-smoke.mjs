@@ -31,6 +31,9 @@ const provider = arg("provider", process.env.LAIDBACK_MODEL_PROVIDER ?? "local/s
 const modelId = arg("model", process.env.LAIDBACK_MODEL_ID ?? "qwen3.8-flash-next-iq3_s");
 const thinking = arg("thinking", "xhigh");
 const agentName = arg("agent", "pr-review");
+// The smoke run never posts, but it prints what the chosen policy would send. "hint" adds the
+// harness's own verdict sentence to the body; "submit" lets the event carry the verdict instead.
+const verdictMode = arg("policy", "hint");
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "laidback-smoke-"));
 fs.mkdirSync(path.join(dir, "scratch"), { recursive: true });
@@ -85,7 +88,7 @@ const tree = baseConfig({ dir });
 tree.github.me = "octocat";
 tree.github.tokenEnv = "LAIDBACK_SMOKE_TOKEN";
 tree.agent = { ...tree.agent, name: agentName, agentDir: path.join(agentDir, "agents"), skillsDir: arg("skills-dir", path.join(os.homedir(), ".agents", "skills")), model: { provider, id: modelId, thinking, maxConcurrency: 1, busyBackoffMs: 0 } };
-tree.reviews = { ...tree.reviews, dryRun: true };
+tree.reviews = { ...tree.reviews, dryRun: true, approve: verdictMode, requestChanges: verdictMode };
 tree.gate = { ...tree.gate, channel: "none", beforePost: false };
 tree.tools = { ...tree.tools, mcp: jiraMode === "fake" ? ["atlassian"] : [], allowHosts: ["127.0.0.1", "github.com", "api.github.com"] };
 tree.checkout = { ...tree.checkout, mode: "existing", existingDir: fixture.dir };
@@ -101,7 +104,7 @@ console.log(`fixture ${fixture.dir}, head ${fixture.head.sha.slice(0, 8)}, ${fix
 // The record path is known up front. A run that is interrupted still leaves it on disk.
 console.log(`record will be written to ${path.join(dir, "reviews", `${fixture.owner}-${fixture.repo}-${fixture.pr}-${fixture.head.sha.slice(0, 8)}.md`)}`);
 console.log(`planted issues: ${fixture.planted.map((item) => item.id).join(", ")}`);
-console.log(`ticket access: ${jiraMode}`);
+console.log(`ticket access: ${jiraMode}; verdict policy: ${verdictMode} (dry run, nothing is posted)`);
 
 const started = Date.now();
 let result;
