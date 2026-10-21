@@ -15,6 +15,10 @@ Cannot: push a commit, merge, reopen a draft, deploy. Three layers hold that:
 
 1. **Token scope.** A fine-grained PAT with `Pull requests: read and write`, `Contents: read-only`,
    `Metadata/Issues/Checks: read-only`. Pushing is refused by GitHub, not by the bot's good intentions.
+   Startup proves it: the bot attempts a contents write whose base sha is not an object in any
+   repository, so a token that could write answers 422 and a scoped token answers 403, and nothing is
+   written either way. A 422 stops the bot from starting. Set `github.probeRepo` to a repository the
+   token can see.
 2. **No posting tool.** The model has `review_propose_comment`, `review_propose_body`,
    `review_propose_verdict`, `review_record_gate`, `review_submit`. Only `src/github/poster.mjs`
    writes to GitHub, after the policy and the gate.
@@ -185,7 +189,7 @@ policy, anchoring, verdict policy, banner with optional rephrasing, gate (Slack 
 per-run records, context pickup over persisted sessions (stack walk, fork or digest), container
 setup, the fixture integration tests and the live smoke run.
 
-Not yet: the startup probe that asserts the token really is contents-read-only, the Atlassian
+Not yet: the Atlassian
 credential strategy inside the container (mount an authenticated `mcp-auth.json`, or mint a bearer
 token), a Telegram gate adapter, one live Slack gate run, and a live run that shows a forked session
 making the second review better rather than just cheaper.

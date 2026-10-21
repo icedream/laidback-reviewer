@@ -3,9 +3,10 @@
 
 github:
   me: octocat                       # the username assignments are matched against
-  tokenEnv: LAYOUTBACK_GH_TOKEN     # fine-grained PAT: Pull requests RW, Contents RO, Metadata RO
-  orgs: [example-corp]
+  tokenEnv: LAIDBACK_GH_TOKEN     # fine-grained PAT: Pull requests RW, Contents RO, Metadata RO
+  orgs: []                        # orgs to accept, e.g. [example-corp]; empty with repos: [] = any repo the token sees
   repos: []                         # empty = every repo in the orgs list
+  probeRepo: ""                     # owner/name used for the startup scope probe; falls back to repos[0]
   pollIntervalMs: 120000
   searchAgeHours: 24
 
@@ -77,9 +78,9 @@ gate:
   maxPending: 5
   slack:
     transport: userToken            # userToken | botToken | webhook (webhook cannot read a decision)
-    channelEnv: LAYOUTBACK_SLACK_CHANNEL
+    channelEnv: LAIDBACK_SLACK_CHANNEL
     channelName: laidback-reviewer-gate
-    allowUsersEnv: LAYOUTBACK_SLACK_USERS
+    allowUsersEnv: LAIDBACK_SLACK_USERS
     tokenEnv: SLACK_MCP_XOXC_TOKEN
     cookieEnv: SLACK_MCP_XOXD_TOKEN
-    webhookUrlEnv: LAYOUTBACK_SLACK_WEBHOOK
+    webhookUrlEnv: LAIDBACK_SLACK_WEBHOOK

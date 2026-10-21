@@ -11,6 +11,7 @@ import { loadConfig, secret } from "./config.mjs";
 import { prepareCheckout, releaseWorktree } from "./checkout.mjs";
 import { findCandidates } from "./discovery.mjs";
 import { createGithubClient } from "./github/client.mjs";
+import { probeContentsReadOnly } from "./github/token-probe.mjs";
 import { createSlackGate } from "./gate/slack.mjs";
 import { openStore } from "./proposal/store.mjs";
 import { postApprovedReview } from "./proposal/repost.mjs";
@@ -103,6 +104,19 @@ async function main() {
   }
 
   startupSummary({ cfg, store });
+
+  // The design assumes the credential cannot write repository contents. Check before the first cycle,
+  // not after a review posts something.
+  const probeRepo = cfg.github.probeRepo || cfg.github.repos[0] || "";
+  const probe = probeRepo
+    ? await probeContentsReadOnly({ client, repo: probeRepo, log: (line) => console.log(`  ${line}`) })
+    : { verdict: "skipped", detail: "github.probeRepo is unset and github.repos is empty" };
+  if (probe.verdict === "can_write") {
+    throw new Error(`refusing to start: the token can write repository contents (${probe.detail})`);
+  }
+  if (probe.verdict === "read_only") console.log(`token scope: ${probe.detail}`);
+  if (probe.verdict === "unknown") console.log(`token scope unproven: ${probe.detail}`);
+  if (probe.verdict === "skipped") console.log(`token scope not probed: ${probe.detail}`);
 
   let stopping = false;
   process.on("SIGINT", () => {

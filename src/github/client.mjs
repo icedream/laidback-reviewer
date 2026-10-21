@@ -89,6 +89,12 @@ export function createGithubClient({ baseUrl = "https://api.github.com", token, 
       return request("GET", `/search/issues?q=${encodeURIComponent(query)}&per_page=50&sort=updated&order=desc`);
     },
     postReview: (owner, repo, pr, payload) => request("POST", `${repoPath(owner, repo)}/pulls/${pr}/reviews`, payload),
+    /**
+     * Exists only for the startup scope probe in github/token-probe.mjs, which sends a base sha no
+     * repository contains. Nothing else in this codebase calls it, and the point of calling it is to
+     * be refused.
+     */
+    putContents: (owner, repo, path, payload) => request("PUT", `${repoPath(owner, repo)}/contents/${path}`, payload),
   };
 }
 

@@ -21,6 +21,7 @@ export const CONFIG_SCHEMA = record({
     tokenEnv: string({ def: "LAIDBACK_GH_TOKEN" }),
     orgs: list(string(), { def: [] }),
     repos: list(string(), { def: [] }),
+    probeRepo: string({ def: "" }),
     pollIntervalMs: integer({ def: 120_000, min: 15_000 }),
     searchAgeHours: integer({ def: 24, min: 1 }),
   }),
