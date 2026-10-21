@@ -4,11 +4,12 @@
  *
  *   node src/cli/review-once.mjs --repo example/orders-svc --pr 143 --dir /path/to/checkout
  *
- * Dry run unless --post is given, and --post still honours the gate: it changes what the policy may
- * send, never whether a human is asked first.
+ * Posting follows `reviews.dryRun` in the config. `--post` forces it on, `--dry-run` forces it off, and
+ * either way the gate still decides whether anything reaches GitHub.
  */
 
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { loadConfig, secret } from "../config.mjs";
 import { createGithubClient } from "../github/client.mjs";
 import { matchRepository } from "../github/scope.mjs";
@@ -16,26 +17,38 @@ import { openStore } from "../proposal/store.mjs";
 import { runReview } from "../review-run.mjs";
 
 function parseArgs(argv) {
-  const out = { post: false };
+  const out = { post: false, dryRun: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--post") out.post = true;
-    else if (arg === "--dry-run") out.post = false;
+    else if (arg === "--dry-run") out.dryRun = true;
     else if (arg.startsWith("--")) out[arg.slice(2)] = argv[++i];
     else if (!out.positional) out.positional = arg;
   }
   return out;
 }
 
+/**
+ * `--dry-run` has to override a config that permits posting, otherwise the flag that promises nothing
+ * reaches GitHub still queues a gate that posts once it is approved.
+ */
+export function resolveDryRun(cfg, args) {
+  if (args.post) cfg.reviews.dryRun = false;
+  if (args.dryRun) cfg.reviews.dryRun = true;
+  return cfg.reviews.dryRun;
+}
+
+export { parseArgs };
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const cfg = loadConfig({ path: args.config ?? process.env.LAIDBACK_CONFIG ?? "config.yaml" });
-  if (args.post) cfg.reviews.dryRun = false;
+  resolveDryRun(cfg, args);
 
   const [owner, repo] = String(args.repo ?? "").split("/");
   const pr = Number(args.pr);
   if (!owner || !repo || !pr) {
-    console.error("usage: node src/cli/review-once.mjs --repo <owner>/<name> --pr <number> [--dir <checkout>] [--post]");
+    console.error("usage: node src/cli/review-once.mjs --repo <owner>/<name> --pr <number> [--dir <checkout>] [--post | --dry-run]");
     process.exit(2);
   }
 
@@ -81,7 +94,10 @@ async function main() {
   store.close();
 }
 
-main().catch((error) => {
-  console.error(error.stack ?? String(error));
-  process.exit(1);
-});
+// Imported by tests for the flag handling; only a direct run performs a review.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  main().catch((error) => {
+    console.error(error.stack ?? String(error));
+    process.exit(1);
+  });
+}
