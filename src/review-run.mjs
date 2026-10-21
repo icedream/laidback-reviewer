@@ -35,6 +35,9 @@ export function toPrView(json, { owner, repo }) {
     base: { ref: json.base?.ref, sha: json.base?.sha },
     head: { ref: json.head?.ref, sha: json.head?.sha },
     assignees: (json.assignees ?? []).map((assignee) => assignee.login),
+    // Kept apart because they mean different things: a user asked me, or a group I belong to was asked.
+    requested_reviewers: (json.requested_reviewers ?? []).map((reviewer) => reviewer.login),
+    requested_teams: (json.requested_teams ?? []).map((team) => team.slug ?? team.name),
     author: json.user?.login,
     raw: json,
   };
@@ -46,7 +49,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   const pr = toPrView(prJson, { owner, repo });
   const headSha = pr.head.sha;
 
-  if (pr.draft && cfg.assignment.skipDraft) {
+  if (pr.draft && cfg.trigger.skipDraft) {
     return { skipped: "draft", pr };
   }
 

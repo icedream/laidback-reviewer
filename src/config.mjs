@@ -26,9 +26,15 @@ export const CONFIG_SCHEMA = record({
     pollIntervalMs: integer({ def: 120_000, min: 15_000 }),
     searchAgeHours: integer({ def: 24, min: 1 }),
   }),
+  trigger: record({
+    // A team request never qualifies under any mode: it lands on requested_teams, not the reviewer list.
+    mode: enumerated(["review_requested", "assigned", "both"], { def: "review_requested" }),
+    policy: enumerated(["any", "human_actor", "exclude_codeowners"], { def: "any" }),
+    skipDraft: bool({ def: true }),
+  }),
+  // Deprecated spelling, translated into `trigger` by loadConfig.
   assignment: record({
     policy: enumerated(["any", "human_actor", "exclude_codeowners"], { def: "any" }),
-    includeReviewRequests: bool({ def: false }),
     skipDraft: bool({ def: true }),
   }),
   reviews: record({
@@ -211,14 +217,30 @@ export function loadConfig({ path = process.env.LAIDBACK_CONFIG || "config.yaml"
   const errors = [];
   const cfg = validate(applyEnvDefaults(raw, env), CONFIG_SCHEMA, "", errors);
   if (errors.length) {
-    const hint = errors.some((error) => /agent\.model\.(provider|id): required/.test(error))
-      ? "\n  (agent.model.provider and agent.model.id may also come from LAIDBACK_MODEL_PROVIDER and LAIDBACK_MODEL_ID)"
-      : "";
+    let hint = "";
+    if (errors.some((error) => /agent\.model\.(provider|id): required/.test(error))) {
+      hint = "\n  (agent.model.provider and agent.model.id may also come from LAIDBACK_MODEL_PROVIDER and LAIDBACK_MODEL_ID)";
+    }
+    if (errors.some((error) => /includeReviewRequests/.test(error))) {
+      hint += "\n  (a review request is the trigger now: use trigger.mode: review_requested or both, and trigger.assigned for assignments)";
+    }
     throw new Error(`invalid config (${path}):\n  - ${errors.join("\n  - ")}${hint}`);
   }
+  cfg._deprecations = applyTriggerAliases(raw, cfg);
   cfg._path = path;
   cfg._env = env;
   return cfg;
+}
+
+/** `assignment:` was renamed to `trigger:`; old files still load, with a startup note. */
+function applyTriggerAliases(raw, cfg) {
+  const legacy = raw.assignment;
+  if (!legacy || typeof legacy !== "object") return [];
+  const notes = [];
+  if (legacy.policy !== undefined && raw.trigger?.policy === undefined) cfg.trigger.policy = legacy.policy;
+  if (legacy.skipDraft !== undefined && raw.trigger?.skipDraft === undefined) cfg.trigger.skipDraft = legacy.skipDraft;
+  notes.push("assignment: is now trigger: (mode, policy, skipDraft); the mode defaults to review_requested, so assignments alone no longer start a review");
+  return notes;
 }
 
 /** Secrets live in the environment; the config file only names the variable. */

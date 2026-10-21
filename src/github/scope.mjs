@@ -1,17 +1,9 @@
 /**
- * Which repositories the bot is allowed to touch.
- *
- * The search query cannot express an OR over repositories, so the filter runs client-side on
- * `repository_url`. It is the difference between "assigned to me anywhere I have a token" and
- * "assigned to me in the projects I want a machine reviewing", and it is checked before any per-PR
- * API call so an ignored repository costs one search result and nothing else.
+ * Which repositories the bot may touch. Search cannot OR over repositories, so this runs client-side
+ * on `repository_url`, before any per-PR call.
  */
 
-/**
- * Glob to regex. `*` stays inside one path segment, so `example/orders-*` matches repositories in that
- * org and `*` alone matches any org. `**` crosses the slash. Matching is case-insensitive because
- * GitHub treats names that way.
- */
+/** Glob to regex: `*` one segment, `**` across slashes, `?` one char, case-insensitive. */
 function patternToRegExp(pattern) {
   const escaped = String(pattern)
     .trim()
@@ -42,8 +34,7 @@ export function matchRepository(fullName, scope) {
   const repoRule = compile(scope.repos).find(({ re }) => re.test(name));
   if (repoRule) return { allowed: true, reason: `matches github.repos "${repoRule.pattern}"` };
 
-  // `orgs` lists owners, so a pattern there is tried against the owner segment as well as the whole
-  // name: `example` and `example/*` both admit example/anything, and `*` admits every org.
+  // orgs patterns are also tried against the owner segment alone, so `*` admits every owner.
   const orgRule = compile(scope.orgs).find(({ pattern, re }) => re.test(name) || re.test(org) || pattern.toLowerCase() === org.toLowerCase());
   if (orgRule) return { allowed: true, reason: `matches github.orgs "${orgRule.pattern}"` };
 

@@ -2,7 +2,7 @@
 # Unknown keys are rejected at startup.
 
 github:
-  me: octocat                       # the username assignments are matched against
+  me: octocat                       # the username review requests are matched against
   tokenEnv: LAIDBACK_GH_TOKEN     # fine-grained PAT: Pull requests RW, Contents RO, Metadata RO
   orgs: []                          # owners to accept, e.g. [example-corp]; every repo under them
   repos: []                         # owner/name patterns, * for one segment: [example-corp/orders-*]
@@ -11,9 +11,9 @@ github:
   pollIntervalMs: 120000
   searchAgeHours: 24
 
-assignment:
-  policy: any                       # any | human_actor | exclude_codeowners
-  includeReviewRequests: false      # team review requests are never matched; user requests only when true
+trigger:
+  mode: review_requested            # review_requested | assigned | both; a request to a team of mine never counts
+  policy: any                       # any | human_actor (a person filed it, author irrelevant) | exclude_codeowners
   skipDraft: true
 
 reviews:

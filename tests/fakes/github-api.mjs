@@ -25,7 +25,10 @@ export function createFakeGithubApi({ fixture, me = "octocat", token = "test-tok
     created_at: "2026-04-01T09:00:00Z",
     updated_at: "2026-04-03T11:20:00Z",
     user: { login: "dev-author", type: "User" },
-    assignees: [{ login: me }],
+    assignees: fixture.assignees ?? [{ login: me }],
+    // Requested teams are recorded apart from reviewers, and must never qualify.
+    requested_reviewers: fixture.requestedReviewers ?? [{ login: me, type: "User" }],
+    requested_teams: fixture.requestedTeams ?? [],
     base: { ref: fixture.base.ref, sha: fixture.base.sha, repo: { full_name: `${fixture.owner}/${fixture.repo}` } },
     head: { ref: fixture.head.ref, sha: fixture.head.sha, repo: { full_name: `${fixture.owner}/${fixture.repo}` } },
     mergeable_state: "blocked",
@@ -36,6 +39,12 @@ export function createFakeGithubApi({ fixture, me = "octocat", token = "test-tok
   };
 
   const timeline = [
+    {
+      event: "review_requested",
+      actor: { login: "tech-lead", type: "User" },
+      requested_reviewer: { login: me, type: "User" },
+      created_at: "2026-04-03T11:24:00Z",
+    },
     {
       event: "assigned",
       actor: { login: "tech-lead", type: "User" },
@@ -60,11 +69,18 @@ export function createFakeGithubApi({ fixture, me = "octocat", token = "test-tok
     },
     {
       match: (method, p) => method === "GET" && p === "/search/issues",
-      handle: () => ({
-        total_count: 1,
-        incomplete_results: false,
-        items: [{ number: fixture.pr, repository_url: apiBase, html_url: pr.html_url, updated_at: pr.updated_at, pull_request: { draft: false } }],
-      }),
+      handle: (query = {}) => {
+        // One endpoint, two qualifiers: answer only when the fixture carries that relationship.
+        const q = query.q ?? "";
+        const mine = (list) => (list ?? []).some((entry) => String(entry.login ?? "").toLowerCase() === me.toLowerCase());
+        const matched = q.includes("review-requested:") ? mine(pr.requested_reviewers) : q.includes("assignee:") ? mine(pr.assignees) : false;
+        if (!matched) return { total_count: 0, incomplete_results: false, items: [] };
+        return {
+          total_count: 1,
+          incomplete_results: false,
+          items: [{ number: fixture.pr, repository_url: apiBase, html_url: pr.html_url, updated_at: pr.updated_at, pull_request: { draft: false } }],
+        };
+      },
     },
     {
       // How a stack link is found: the PR whose head is this PR's base branch.

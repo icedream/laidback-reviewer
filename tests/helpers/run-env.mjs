@@ -31,7 +31,7 @@ function merge(base, extra) {
 export function baseConfig({ dir }) {
   return {
     github: { me: "octocat", tokenEnv: "LAIDBACK_TEST_TOKEN", orgs: ["example"], repos: [], deny: [] },
-    assignment: { policy: "any", includeReviewRequests: false, skipDraft: true },
+    trigger: { mode: "review_requested", policy: "any", skipDraft: true },
     reviews: {
       rereviewOnPush: false,
       maxPerCycle: 2,
@@ -74,12 +74,14 @@ export function baseConfig({ dir }) {
  * Bring up one review run. `overrides` is a partial config tree, so each test reads as a policy
  * difference rather than a new environment.
  */
-export async function setupReviewRun({ overrides = {}, scriptOptions = {}, turns = null, env = {}, jira = false, context = null, modelFails = [] } = {}) {
+export async function setupReviewRun({ overrides = {}, scriptOptions = {}, turns = null, env = {}, jira = false, context = null, modelFails = [], prState = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "laidback-test-"));
   fs.mkdirSync(path.join(dir, "scratch"), { recursive: true });
   let jiraCallsPath = null;
 
   const fixture = buildFixtureRepo({ dir: path.join(dir, "repos", "orders-svc") });
+  // Who the fake reports as asked: assignees, individual reviewers, team reviewers, timeline events.
+  if (prState) Object.assign(fixture, prState);
   const github = createFakeGithubApi({ fixture, me: "octocat", token: "test-token" });
   const { baseUrl: githubBaseUrl } = await github.start();
 

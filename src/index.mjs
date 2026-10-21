@@ -16,9 +16,9 @@ function startupSummary({ cfg, store }) {
   const failures = store.listFailures().filter((row) => row.parked);
   console.log(
     [
-      `laidback-reviewer watching assignee=${cfg.github.me}`,
+      `laidback-reviewer watching ${cfg.github.me}`,
       `  scope: ${describeScope(cfg.github)}`,
-      `  assignment policy: ${cfg.assignment.policy}, review requests: ${cfg.assignment.includeReviewRequests}`,
+      `  trigger: ${cfg.trigger.mode}; provenance policy: ${cfg.trigger.policy}`,
       `  model: ${cfg.agent.model.provider}/${cfg.agent.model.id} (thinking ${cfg.agent.model.thinking}, ${cfg.agent.model.busyRetries} busy retries at ${cfg.agent.model.busyBackoffMs}ms)`,
       `  agent: ${cfg.agent.name} from ${cfg.agent.agentDir}`,
       `  verdict policy: approve=${cfg.reviews.approve} request_changes=${cfg.reviews.requestChanges}`,
@@ -33,6 +33,7 @@ function startupSummary({ cfg, store }) {
 
 async function main() {
   const cfg = loadConfig();
+  for (const note of cfg._deprecations ?? []) console.log(`config: ${note}`);
   secret(cfg, cfg.github.tokenEnv, { required: true });
   const store = openStore(process.env.LAIDBACK_STATE_DB ?? "data/state.db");
   const client = createGithubClient({

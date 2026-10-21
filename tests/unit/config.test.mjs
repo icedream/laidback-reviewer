@@ -22,8 +22,40 @@ test("defaults fill in the safe values", () => {
   assert.equal(cfg.reviews.requestChanges, "hint");
   assert.equal(cfg.gate.beforePost, true);
   assert.equal(cfg.gate.onTimeout, "hold");
-  assert.equal(cfg.assignment.policy, "any");
-  assert.equal(cfg.assignment.includeReviewRequests, false);
+  assert.equal(cfg.trigger.mode, "review_requested", "an individual review request is the trigger");
+  assert.equal(cfg.trigger.policy, "any");
+  assert.equal(cfg.trigger.skipDraft, true);
+});
+
+test("the old assignment section still works and says what changed", () => {
+  const tree = baseConfig({ dir: "/tmp" });
+  delete tree.trigger;
+  tree.assignment = { policy: "exclude_codeowners", skipDraft: false };
+  const cfg = loadConfig({ path: writeConfig(tree), env: {} });
+
+  assert.equal(cfg.trigger.policy, "exclude_codeowners");
+  assert.equal(cfg.trigger.skipDraft, false);
+  assert.equal(cfg.trigger.mode, "review_requested", "a renamed section does not revive assignment triggering");
+  assert.match((cfg._deprecations ?? []).join(" "), /assignment: is now trigger:/);
+});
+
+test("trigger wins where both spellings are present", () => {
+  const tree = baseConfig({ dir: "/tmp" });
+  tree.trigger = { mode: "assigned", policy: "any" };
+  tree.assignment = { policy: "human_actor" };
+  const cfg = loadConfig({ path: writeConfig(tree), env: {} });
+
+  assert.equal(cfg.trigger.mode, "assigned");
+  assert.equal(cfg.trigger.policy, "any");
+});
+
+test("the removed review-request switch is rejected and names its replacement", () => {
+  const tree = baseConfig({ dir: "/tmp" });
+  tree.assignment = { includeReviewRequests: true };
+  const file = writeConfig(tree);
+
+  assert.throws(() => loadConfig({ path: file, env: {} }), /assignment\.includeReviewRequests: unknown key/);
+  assert.throws(() => loadConfig({ path: file, env: {} }), /a review request is the trigger now/);
 });
 
 test("an unknown key is an error, because a dropped key could be a permission", () => {

@@ -61,6 +61,11 @@ export function createGithubClient({ baseUrl = "https://api.github.com", token, 
 
   const repoPath = (owner, repo) => `/repos/${owner}/${repo}`;
 
+  const searchIssues = (qualifier, sinceIso) => {
+    const query = `is:pr is:open archived:false ${qualifier} updated:>=${sinceIso.slice(0, 10)}`;
+    return request("GET", `/search/issues?q=${encodeURIComponent(query)}&per_page=50&sort=updated&order=desc`);
+  };
+
   return {
     request,
     getRepo: (owner, repo) => request("GET", repoPath(owner, repo)),
@@ -80,14 +85,9 @@ export function createGithubClient({ baseUrl = "https://api.github.com", token, 
     listPullsForHead: (owner, repo, branch) =>
       request("GET", `${repoPath(owner, repo)}/pulls?head=${encodeURIComponent(`${owner}:${branch}`)}&state=all&per_page=5`),
     listTimeline: (owner, repo, pr) => request("GET", `${repoPath(owner, repo)}/issues/${pr}/timeline?per_page=100`),
-    /**
-     * Search cannot OR qualifiers, so the repository allowlist is applied client-side by
-     * src/github/scope.mjs. A wide search plus a narrow filter also keeps the query cacheable.
-     */
-    searchAssigned: ({ me, sinceIso }) => {
-      const query = `is:pr is:open archived:false assignee:${me} updated:>=${sinceIso.slice(0, 10)}`;
-      return request("GET", `/search/issues?q=${encodeURIComponent(query)}&per_page=50&sort=updated&order=desc`);
-    },
+    // One query per trigger mode. A team request would be `review-requested:@org/team`, never used.
+    searchAssigned: ({ me, sinceIso }) => searchIssues(`assignee:${me}`, sinceIso),
+    searchReviewRequested: ({ me, sinceIso }) => searchIssues(`review-requested:${me}`, sinceIso),
     postReview: (owner, repo, pr, payload) => request("POST", `${repoPath(owner, repo)}/pulls/${pr}/reviews`, payload),
     /**
      * Exists only for the startup scope probe in github/token-probe.mjs, which sends a base sha no

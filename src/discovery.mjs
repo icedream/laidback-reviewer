@@ -1,10 +1,7 @@
 /**
- * Which assignments to act on.
- *
- * GitHub assigns pull requests to individuals only, so `assignee:<me>` is already direct: a team
- * review request never touches the assignee list. What the timeline does not distinguish is
- * provenance, only the `actor` who generated the event, so the stricter policies below are best
- * effort and say so in the reason they return.
+ * Which PRs count as the bot's work. GitHub separates the paths in its data, `requested_reviewers`
+ * for users and `requested_teams` for teams, so team membership needs no guessing. Provenance is not
+ * in the data, only the `actor`, so the stricter policies below are best effort.
  */
 
 import { scopeForSearchHit } from "./github/scope.mjs";
@@ -13,6 +10,11 @@ const AUTO_ASSIGN_WINDOW_MS = 5 * 60 * 1000;
 
 export function isAssignedTo(pr, me) {
   return (pr.assignees ?? []).some((assignee) => assignee.login?.toLowerCase() === me.toLowerCase());
+}
+
+/** A request to me, not to a group I belong to: `requested_reviewers` only ever holds users. */
+export function isRequestedReviewer(pr, me) {
+  return (pr.requested_reviewers ?? []).some((reviewer) => reviewer.login?.toLowerCase() === me.toLowerCase());
 }
 
 function isAutomationActor(actor) {
@@ -58,34 +60,52 @@ function assignedEvents(events, me) {
   return (events ?? []).filter((event) => event.event === "assigned" && event.assignee?.login?.toLowerCase() === me.toLowerCase());
 }
 
+/** Team request events carry `requested_team` and no `requested_reviewer`, so they never match here. */
+function requestedEvents(events, me) {
+  return (events ?? []).filter(
+    (event) => event.event === "review_requested" && event.requested_reviewer?.login?.toLowerCase() === me.toLowerCase(),
+  );
+}
+
+const triggerLabel = (kind) => (kind === "assigned" ? "assigned" : "review requested");
+
 /**
+ * @param kind "review_requested" or "assigned", the search that produced the hit.
  * @returns {{ eligible: boolean, reason: string }}
  */
-export function classifyAssignment({ pr, events, me, policy, codeownersContent, changedPaths }) {
-  if (!isAssignedTo(pr, me)) return { eligible: false, reason: "not assigned to me" };
+export function classifyTrigger({ pr, events, me, policy, kind, codeownersContent, changedPaths }) {
+  const label = triggerLabel(kind);
+  if (kind === "review_requested" ? !isRequestedReviewer(pr, me) : !isAssignedTo(pr, me)) {
+    if (kind !== "review_requested") return { eligible: false, reason: "not assigned to me" };
+    const users = (pr.requested_reviewers ?? []).map((reviewer) => reviewer.login).join(", ") || "none";
+    const teams = (pr.requested_teams ?? []).map((team) => team.slug ?? team.name).join(", ") || "none";
+    return { eligible: false, reason: `not an individually requested reviewer (reviewers: ${users}; teams: ${teams})` };
+  }
 
-  const eventsForMe = assignedEvents(events, me);
+  const eventsForMe = kind === "review_requested" ? requestedEvents(events, me) : assignedEvents(events, me);
+  // The requester decides, never the PR author: a bot-authored PR that a person asked me to look at
+  // still counts, and so does asking myself.
+  const humanEvent = eventsForMe.find((event) => !isAutomationActor(event.actor));
   if (policy === "any") {
-    return { eligible: true, reason: `assigned to me (${eventsForMe[0]?.actor?.login ?? "actor unknown"})` };
+    return { eligible: true, reason: `${label} to me (${eventsForMe[0]?.actor?.login ?? "actor unknown"})` };
   }
 
   if (policy === "human_actor") {
-    if (!eventsForMe.length) return { eligible: true, reason: "assigned, no assignment event in the timeline window: treated as human" };
-    const latest = eventsForMe.at(-1);
-    if (isAutomationActor(latest.actor)) return { eligible: false, reason: `assignment actor ${latest.actor.login} looks automated` };
-    return { eligible: true, reason: `assigned by ${latest.actor.login}` };
+    if (!eventsForMe.length) return { eligible: true, reason: `${label}, no matching event in the timeline window: treated as human` };
+    if (humanEvent) return { eligible: true, reason: `${label} by ${humanEvent.actor.login}` };
+    const actors = eventsForMe.map((event) => event.actor?.login ?? "?").join(", ");
+    return { eligible: false, reason: `${label} only by automation actors (${actors})` };
   }
 
-  // exclude_codeowners: the auto-assignment GitHub writes lands within seconds of PR creation, and
-  // only for an owner that a CODEOWNERS rule covers for the changed paths. Both halves must hold to
-  // call it automatic.
+  // exclude_codeowners: an automatic trigger lands within seconds of PR creation, and only for a
+  // CODEOWNERS owner covering the changed paths. Both halves must hold.
   const rules = parseCodeowners(codeownersContent);
   if (!rules.length) return { eligible: true, reason: "no CODEOWNERS rules in this repository" };
 
   const latest = eventsForMe.at(-1);
   const createdAt = pr.created_at ? Date.parse(pr.created_at) : 0;
-  const assignedAt = latest?.created_at ? Date.parse(latest.created_at) : 0;
-  const nearOpen = assignedAt && createdAt && Math.abs(assignedAt - createdAt) <= AUTO_ASSIGN_WINDOW_MS;
+  const setAt = latest?.created_at ? Date.parse(latest.created_at) : 0;
+  const nearOpen = setAt && createdAt && Math.abs(setAt - createdAt) <= AUTO_ASSIGN_WINDOW_MS;
   const owners = matchedCodeowners(rules, changedPaths).flatMap((rule) => rule.owners);
   const namesMe = owners.some((owner) => {
     const name = owner.replace(/^@/, "").toLowerCase();
@@ -93,10 +113,12 @@ export function classifyAssignment({ pr, events, me, policy, codeownersContent, 
   });
 
   if (nearOpen && namesMe) {
-    return { eligible: false, reason: "assignment matches a CODEOWNERS rule for the changed paths and landed at PR open (best effort)" };
+    return { eligible: false, reason: `${label} matches a CODEOWNERS rule for the changed paths and landed at PR open (best effort)` };
   }
-  if (isAutomationActor(latest?.actor)) return { eligible: false, reason: `assignment actor ${latest?.actor?.login ?? "?"} looks automated` };
-  return { eligible: true, reason: `assignment is not explained by CODEOWNERS (owners for these paths: ${owners.join(", ") || "none"})` };
+  if (!eventsForMe.length || !humanEvent) {
+    return { eligible: false, reason: `${label} actor ${eventsForMe.at(-1)?.actor?.login ?? "?"} looks automated` };
+  }
+  return { eligible: true, reason: `${label} is not explained by CODEOWNERS (owners for these paths: ${owners.join(", ") || "none"})` };
 }
 
 export function repositoryFromSearchHit(item) {
@@ -106,27 +128,40 @@ export function repositoryFromSearchHit(item) {
 }
 
 /**
- * Candidate PRs: search results, minus what state says is handled, minus what the assignment policy
- * rejects. The search cursor moves to the newest update it saw, so a PR only comes back if it was
- * touched again.
+ * Candidate PRs: search results for the configured trigger, minus out-of-scope repositories, minus
+ * what state says is handled, minus what the provenance policy rejects. The search cursor moves to the
+ * newest update it saw, so a PR only comes back if it was touched again.
  */
 export async function findCandidates({ cfg, client, store, now = new Date() }) {
   const cursorIso = store.getMeta("search_updated_at") ?? new Date(now.getTime() - cfg.github.searchAgeHours * 3600_000).toISOString();
-  const search = await client.searchAssigned({ me: cfg.github.me, sinceIso: cursorIso });
+  // Search cannot OR qualifiers: one query per mode, review requests first.
+  const modes = cfg.trigger.mode === "both" ? ["review_requested", "assigned"] : [cfg.trigger.mode];
+  const hits = [];
+  for (const kind of modes) {
+    const search =
+      kind === "assigned"
+        ? await client.searchAssigned({ me: cfg.github.me, sinceIso: cursorIso })
+        : await client.searchReviewRequested({ me: cfg.github.me, sinceIso: cursorIso });
+    for (const item of search.items ?? []) hits.push({ item, kind });
+  }
 
   const candidates = [];
   const rejected = [];
+  const seen = new Set();
   let newest = cursorIso;
 
-  for (const item of search.items ?? []) {
-    if (item.pull_request?.draft) {
+  for (const { item, kind } of hits) {
+    const hitKey = `${item.repository_url}#${item.number}`;
+    if (seen.has(hitKey)) continue;
+    seen.add(hitKey);
+
+    if (item.pull_request?.draft && cfg.trigger.skipDraft) {
       rejected.push({ pr: item.number, reason: "draft" });
       continue;
     }
     const located = repositoryFromSearchHit(item);
     if (!located) continue;
-    // Scope before anything else: an out-of-sight repository costs one search result, not a pull
-    // fetch, a timeline fetch and a CODEOWNERS fetch.
+    // Scope first: an out-of-sight repository costs one search hit and no further calls.
     const scope = scopeForSearchHit(item, cfg.github);
     if (!scope.allowed) {
       rejected.push({ pr: located, reason: scope.reason });
@@ -140,12 +175,13 @@ export async function findCandidates({ cfg, client, store, now = new Date() }) {
     }
 
     const events = await client.listTimeline(located.owner, located.repo, located.number);
-    const wantsCodeowners = cfg.assignment.policy === "exclude_codeowners";
-    const decision = classifyAssignment({
+    const wantsCodeowners = cfg.trigger.policy === "exclude_codeowners";
+    const decision = classifyTrigger({
       pr,
       events,
       me: cfg.github.me,
-      policy: cfg.assignment.policy,
+      policy: cfg.trigger.policy,
+      kind,
       codeownersContent: wantsCodeowners ? await fetchCodeowners(client, located) : "",
       changedPaths: wantsCodeowners ? (await client.listFiles(located.owner, located.repo, located.number)).map((file) => file.filename) : [],
     });
