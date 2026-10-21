@@ -93,7 +93,7 @@ export function openStore(path) {
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec(SCHEMA);
   // Columns added after the first release: exec() above is a no-op on an existing database.
-  for (const column of ["slack_ts TEXT"]) {
+  for (const column of ["slack_ts TEXT", "comment_ts TEXT"]) {
     try {
       db.exec(`ALTER TABLE gates ADD COLUMN ${column}`);
     } catch {
@@ -162,6 +162,7 @@ export function createStore(db) {
     ),
     getGate: db.prepare(`SELECT * FROM gates WHERE id = @id`),
     setSlackTs: db.prepare(`UPDATE gates SET slack_ts = @ts WHERE id = @id`),
+    setCommentTs: db.prepare(`UPDATE gates SET comment_ts = @ts WHERE id = @id`),
     pendingGates: db.prepare(`SELECT * FROM gates WHERE state = 'pending' ORDER BY created_at`),
     decideGate: db.prepare(
       `UPDATE gates SET state = @state, decided_at = @now, decided_by = @decided_by, reason = @reason WHERE id = @id`,
@@ -265,6 +266,8 @@ export function createStore(db) {
     },
     getGate: (id) => statements.getGate.get({ id }),
     setSlackTs: ({ id, ts }) => statements.setSlackTs.run({ id, ts }),
+    /** Replies the gate itself posted, so reading a thread never mistakes one for a decision. */
+    recordCommentTs: ({ id, tsList }) => statements.setCommentTs.run({ id, ts: JSON.stringify(tsList) }),
     pendingGates: () => statements.pendingGates.all(),
     gatesForReview: (reviewId) => statements.gatesForReview.all({ review_id: reviewId }),
     /** Composed reviews whose gate an admin approved but which were never sent. */

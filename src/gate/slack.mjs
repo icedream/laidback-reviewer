@@ -8,7 +8,13 @@
  * the decision is an emoji reaction on the gate message, or text in the thread.
  */
 
+import { renderInlineComment } from "./gate.mjs";
+
 const SLACK_API = "https://slack.com/api";
+
+// Slack allows 40k characters in a message; a finding is not served whole in a wall of text.
+const SLACK_CLAMP = 3500;
+const clamp = (text) => (text.length > SLACK_CLAMP ? `${text.slice(0, SLACK_CLAMP - 1)}…` : text);
 
 export function parseDecision(text, { gateIds, allowUsers = [], user }) {
   if (!text || !gateIds.size) return null;
@@ -116,7 +122,7 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
 
   const webhookUrl = () => (cfg._env ?? process.env)[slack.webhookUrlEnv] ?? "";
 
-  async function post(gateId, summary) {
+  async function post(gateId, summary, { reviewId = null } = {}) {
     if (slack.transport === "webhook") {
       // An incoming webhook can only talk, never listen: it cannot read a decision back, so the
       // decision is taken with src/cli/gate.mjs against the same queue.
@@ -148,6 +154,7 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
     const sent = await call("chat.postMessage", { channel, text: `${header}\n\n${summary}`, unfurl_links: false });
     if (!sent.ok) return false;
     store.setSlackTs({ id: gateId, ts: sent.ts });
+    await postInlineComments({ gateId, channel, threadTs: sent.ts, reviewId });
     // Seeding a reaction the decider would click is a trap: with a user token the poster and the
     // decider are the same identity, so the click would clear the chip instead of setting it.
     const names = Object.values(slack.reactions ?? {}).flat();
@@ -160,6 +167,30 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
     }
     for (const name of names) await call("reactions.add", { channel, name, timestamp: sent.ts });
     return true;
+  }
+
+  /**
+   * One reply per inline comment. The summary carries positions; the thread carries what is actually
+   * being said about each line, which is the part a decision needs.
+   */
+  async function postInlineComments({ gateId, channel, threadTs, reviewId }) {
+    if (!reviewId || !slack.maxCommentReplies) return;
+    const comments = store.commentsFor(reviewId);
+    if (!comments.length) return;
+
+    const tsList = [];
+    for (const comment of comments.slice(0, slack.maxCommentReplies)) {
+      const reply = await call("chat.postMessage", { channel, thread_ts: threadTs, text: clamp(renderInlineComment(comment)), unfurl_links: false });
+      if (reply.ok && reply.ts) tsList.push(reply.ts);
+    }
+    if (comments.length > slack.maxCommentReplies) {
+      const rest = `${comments.length - slack.maxCommentReplies} further inline comments are in the review artifact, not in this thread.`;
+      const reply = await call("chat.postMessage", { channel, thread_ts: threadTs, text: rest, unfurl_links: false });
+      if (reply.ok && reply.ts) tsList.push(reply.ts);
+    }
+    // Recorded so reading the thread back never treats one of these as a decision.
+    store.recordCommentTs({ id: gateId, tsList });
+    log(`gate ${gateId}: ${tsList.length} inline comments posted in the thread`);
   }
 
   /** Read the thread of each pending gate and apply any decision in it. */
@@ -179,7 +210,9 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
       }).then((response) => response.json());
 
       const gateIds = new Set([gate.id]);
+      const ours = new Set(JSON.parse(gate.comment_ts ?? "[]"));
       for (const message of thread.messages ?? []) {
+        if (ours.has(message.ts)) continue;
         const decision = parseDecision(message.text, { gateIds, allowUsers: allow, user: message.user });
         if (!decision) continue;
         applied.push(store.decideGate({ id: decision.gateId, state: STATE_BY_COMMAND[decision.command], decided_by: message.user ?? "slack", reason: decision.reason }));

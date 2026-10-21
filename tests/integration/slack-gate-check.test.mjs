@@ -13,14 +13,18 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { stringify } from "yaml";
+import { loadConfig } from "../../src/config.mjs";
+import { createGate, renderGateSummary } from "../../src/gate/gate.mjs";
+import { createSlackGate } from "../../src/gate/slack.mjs";
 import { openStore } from "../../src/proposal/store.mjs";
 import { baseConfig } from "../helpers/run-env.mjs";
 
 const ROOT = path.join(import.meta.dirname, "..", "..");
 
-function tempEnv(slackOverrides = {}) {
+function tempEnv(slackOverrides = {}, { dryRun = true } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "laidback-gatecheck-"));
   const tree = baseConfig({ dir });
+  tree.reviews.dryRun = dryRun;
   tree.gate = {
     ...tree.gate,
     channel: "slack",
@@ -36,6 +40,8 @@ function fakeSlack({ approver = "U_ME", textReply = true, react = null } = {}) {
   const posts = [];
   const reactions = [];
   const seen = [];
+  let posted = 0;
+  const nextTs = () => `1700000000.00${String(++posted).padStart(3, "0")}`;
   const server = http.createServer(async (req, res) => {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
@@ -50,7 +56,7 @@ function fakeSlack({ approver = "U_ME", textReply = true, react = null } = {}) {
     if (url.startsWith("/conversations.list?types=im")) return json({ ok: true, channels: [{ id: "D_SELF", user: "U_ME" }] });
     if (url.startsWith("/conversations.list")) return json({ ok: true, channels: [] });
     if (url.startsWith("/chat.postMessage")) {
-      const ts = "1700000000.000100";
+      const ts = nextTs();
       posts.push({ ...body, ts });
       return json({ ok: true, ts, channel: body.channel });
     }
@@ -60,13 +66,16 @@ function fakeSlack({ approver = "U_ME", textReply = true, react = null } = {}) {
     }
     if (url.startsWith("/conversations.replies")) {
       const params = new URL(url, "http://localhost").searchParams;
-      const post = posts.find((entry) => entry.ts === params.get("ts"));
-      seen.push(params.get("ts"));
-      const root = { text: post?.text ?? "", user: "U_BOT", ts: post?.ts };
+      const rootTs = params.get("ts");
+      const post = posts.find((entry) => entry.ts === rootTs);
+      seen.push(rootTs);
+      const root = { text: post?.text ?? "", user: "U_BOT", ts: rootTs };
       if (react) root.reactions = [{ name: react.name, count: 1, users: [react.user] }];
       const messages = [root];
+      // Thread replies from the gate itself carry the poster's identity, the same one that may decide.
+      for (const entry of posts) if (entry.thread_ts === rootTs) messages.push({ text: entry.text, user: entry.user ?? "U_ME", ts: entry.ts });
       const requested = post ? /approve (\S+)/.exec(post.text)?.[1] : null;
-      if (requested && textReply) messages.push({ text: `approve ${requested}`, user: approver, ts: "1700000000.000200" });
+      if (requested && textReply) messages.push({ text: `approve ${requested}`, user: approver, ts: nextTs() });
       return json({ ok: true, messages });
     }
     return json({ ok: false, error: "unknown_method" });
@@ -257,6 +266,67 @@ test("a missing token says which variable and what to copy into it", () => {
     assert.match(run.stderr, /xoxc-\.\.\./);
     assert.match(run.stderr, /transport=botToken/);
   } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("every inline comment is posted in the thread, and none of them decides the gate", async () => {
+  const slack = fakeSlack({ textReply: false });
+  const apiBaseUrl = await slack.start();
+  const { dir, config } = tempEnv({ apiBaseUrl }, { dryRun: false });
+  const env = { ...process.env, GATECHECK_XOXC: "xoxc-test", GATECHECK_XOXD: "xoxd-test", LAIDBACK_SLACK_USERS: "U_ME" };
+  const cfg = loadConfig({ path: config, env });
+  const store = openStore(path.join(dir, "comments.db"));
+  try {
+    const composed = {
+      verdict: "request_changes",
+      action: "submit",
+      event: "REQUEST_CHANGES",
+      payload: {
+        body: "one thing blocks this",
+        comments: [
+          { path: "go.mod", line: 119, body: "the pin is below main, which already carries x/net 0.60" },
+          { path: "internal/server/server.go", start_line: 40, line: 44, body: "no test for the customer id filter the ticket asks for" },
+        ],
+      },
+      proposalBody: "",
+      proposalBlocking: [],
+    };
+    const reviewId = store.saveReview({ owner: "acme", repo: "svc", pr: 7, head_sha: "abcdef0123456789", composed, dryRun: false, notes: [] });
+    const slackGate = createSlackGate({ cfg, store, token: "xoxc-test", cookie: "xoxd-test", log: () => {} });
+    const gate = createGate({ cfg, store, slack: slackGate, log: () => {} });
+    const opened = await gate.open({
+      stage: "before_post",
+      reviewId,
+      summary: renderGateSummary({
+        pr: { html_url: "https://github.com/acme/svc/pull/7" },
+        headSha: "abcdef0123456789",
+        composed,
+        notes: [],
+        decisions: ["verdict request_changes -> submit"],
+      }),
+    });
+
+    const [root, ...replies] = slack.posts;
+    assert.equal(replies.length, 2, "one reply per inline comment");
+    assert.ok(replies.every((entry) => entry.thread_ts === root.ts), "replies stay in the gate thread");
+    assert.match(replies[0].text, /^go\.mod:119\n/);
+    assert.match(replies[1].text, /^internal\/server\/server\.go:40-44\n/);
+    assert.match(replies[1].text, /no test for the customer id filter/);
+    assert.match(root.text, /go\.mod:119 .* the pin is below main/, "the summary names what sits at the position");
+
+    const row = store.pendingGates().find((entry) => entry.id === opened.gateId);
+    assert.deepEqual(JSON.parse(row.comment_ts), replies.map((entry) => entry.ts));
+
+    // Those replies carry the same identity as the decider, so the recorded ts list is what keeps a
+    // decision-shaped one from deciding anything.
+    slack.posts[1].text = `approve ${opened.gateId} decided by accident`;
+    const applied = await slackGate.readDecisions();
+    assert.deepEqual(applied, [], "the gate's own replies are not decisions");
+    assert.equal(store.pendingGates().find((entry) => entry.id === opened.gateId).state, "pending");
+  } finally {
+    store.close();
+    slack.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });

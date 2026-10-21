@@ -50,7 +50,7 @@ export function createGate({ cfg, store, log = () => {}, slack = null }) {
           log("gate.channel=slack needs Slack tokens; check gate.slack.tokenEnv in config.yaml");
           return { state: "queued", gateId };
         }
-        const posted = await slack.post(gateId, summary);
+        const posted = await slack.post(gateId, summary, { reviewId });
         if (!posted) log(`gate ${gateId} could not be presented in Slack and stays queued`);
         return { state: "queued", gateId };
       }
@@ -76,6 +76,20 @@ export function createGate({ cfg, store, log = () => {}, slack = null }) {
   };
 }
 
+export function inlineCommentPosition(comment) {
+  return `${comment.path}:${comment.start_line ? `${comment.start_line}-` : ""}${comment.line}`;
+}
+
+/** What a thread reply carries: the position, then the finding itself. */
+export function renderInlineComment(comment) {
+  return `${inlineCommentPosition(comment)}\n${String(comment.body ?? "").trim()}`;
+}
+
+const firstLine = (text, limit) => {
+  const flat = String(text ?? "").replace(/\s+/g, " ").trim();
+  return flat.length > limit ? `${flat.slice(0, limit - 1)}…` : flat;
+};
+
 export function renderGateSummary({ pr, headSha, composed, notes, decisions }) {
   const lines = [
     `PR: ${pr.html_url}`,
@@ -87,9 +101,7 @@ export function renderGateSummary({ pr, headSha, composed, notes, decisions }) {
     composed.payload.body || "(empty body)",
     "",
     `Inline comments (${composed.payload.comments.length}):`,
-    ...composed.payload.comments.map(
-      (comment) => `  ${comment.path}:${comment.start_line ? `${comment.start_line}-` : ""}${comment.line}${comment.note ? ` (${comment.note})` : ""}`,
-    ),
+    ...composed.payload.comments.map((comment) => `  ${inlineCommentPosition(comment)}${comment.note ? ` (${comment.note})` : ""} — ${firstLine(comment.body, 110)}`),
   ];
   if (notes.length) {
     lines.push("", "Harness notes:", ...notes.map((note) => `  - ${note}`));
