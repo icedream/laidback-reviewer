@@ -213,13 +213,16 @@ function validate(value, schema, path, errors) {
 function applyEnvDefaults(raw, env) {
   const agent = raw?.agent ?? {};
   const model = agent.model ?? {};
-  const out = { ...raw, agent: { ...agent, model: { ...model } } };
+  const out = { ...raw, agent: { ...agent, model: { ...model }, skillsDir: agent.skillsDir ?? "" } };
   if (!out.agent.model.provider && env.LAIDBACK_MODEL_PROVIDER) out.agent.model.provider = env.LAIDBACK_MODEL_PROVIDER;
   if (!out.agent.model.id && env.LAIDBACK_MODEL_ID) out.agent.model.id = env.LAIDBACK_MODEL_ID;
   // The review agent lives wherever this machine keeps it, so the directory is environment-scoped like
   // the model, rather than a path written into a published config.
   if (raw?.agent?.agentDir === undefined && env.LAIDBACK_AGENT_DIR) out.agent.agentDir = env.LAIDBACK_AGENT_DIR;
   if (raw?.agent?.name === undefined && env.LAIDBACK_AGENT_NAME) out.agent.name = env.LAIDBACK_AGENT_NAME;
+  // An empty skillsDir means "whatever the agent dir declares"; in the container that is the mounted
+  // skills checkout, so the mount path belongs in the environment.
+  if (!out.agent.skillsDir && env.LAIDBACK_SKILLS_DIR) out.agent.skillsDir = env.LAIDBACK_SKILLS_DIR;
   return out;
 }
 

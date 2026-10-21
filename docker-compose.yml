@@ -15,6 +15,11 @@ services:
       - LAIDBACK_STATE_DB=/data/state.db
       - LAIDBACK_ARTIFACT_DIR=/data/reviews
       - PI_CODING_AGENT_DIR=/app/.pi/agent
+      # Where the review agent lives, and its name: set these in .env rather than baking a machine path
+      # into config.yaml.
+      - LAIDBACK_AGENT_DIR
+      - LAIDBACK_AGENT_NAME
+      - LAIDBACK_SKILLS_DIR=/skills
       - SLACK_MCP_XOXB_TOKEN
       - SLACK_MCP_XOXC_TOKEN
       - SLACK_MCP_XOXD_TOKEN
@@ -30,6 +35,19 @@ services:
       - type: bind
         source: ${PWD}/.pi/agent
         target: /app/.pi/agent
+      # The model provider definition, mounted from the host so there is one copy of the credential
+      # material. Without MODELS_JSON_HOST, the repository's own gitignored copy is used.
+      - type: bind
+        source: ${MODELS_JSON_HOST:-${PWD}/.pi/agent/models.json}
+        target: /app/.pi/agent/models.json
+        read_only: true
+      # The review agent definition, mounted at the same absolute path it has on the host so one
+      # agentDir in config.yaml is correct both in and out of the container. AGENT_DIR_HOST in .env
+      # points at it; without that, the repository's own (untracked) agents dir is used.
+      - type: bind
+        source: ${AGENT_DIR_HOST:-${PWD}/.pi/agent/agents}
+        target: ${AGENT_DIR_HOST:-${PWD}/.pi/agent/agents}
+        read_only: true
       # Review standard, mounted read-only: the org skills the agent cites.
       - type: bind
         source: ${HOME}/.agents/skills

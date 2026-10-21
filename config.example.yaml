@@ -34,7 +34,7 @@ banner:
 agent:
   name: pr-review                   # selects <name>.md; or LAIDBACK_AGENT_NAME
   agentDir: .pi/agent/agents        # or LAIDBACK_AGENT_DIR; ~ is expanded; only README.md is tracked here
-  skillsDir: ""                     # read-only skills mount; empty = whatever the agent dir declares
+  skillsDir: ""                     # read-only skills mount; empty = whatever the agent dir declares; LAIDBACK_SKILLS_DIR in the container
   systemPromptAddendum: ""          # appended after the built-in non-interactive contract
   model:
     provider: local/strata

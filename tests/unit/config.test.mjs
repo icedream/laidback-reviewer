@@ -82,6 +82,18 @@ test("the review agent name can come from the environment", () => {
   assert.equal(cfg.agent.name, "review-standard");
 });
 
+test("an empty skillsDir takes the container mount from the environment", () => {
+  const tree = baseConfig({ dir: "/tmp" });
+  tree.agent.skillsDir = "";
+  const cfg = loadConfig({ path: writeConfig(tree), env: { LAIDBACK_SKILLS_DIR: "/skills" } });
+
+  assert.equal(cfg.agent.skillsDir, "/skills");
+
+  const configured = baseConfig({ dir: "/tmp" });
+  configured.agent.skillsDir = "/elsewhere";
+  assert.equal(loadConfig({ path: writeConfig(configured), env: { LAIDBACK_SKILLS_DIR: "/skills" } }).agent.skillsDir, "/elsewhere");
+});
+
 test("~ is expanded in the agent paths", () => {
   const tree = baseConfig({ dir: "/tmp" });
   tree.agent.agentDir = "~/.pi/agent/agents";

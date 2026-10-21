@@ -58,8 +58,11 @@ docker compose up
 ```
 
 The container mounts `config.yaml`, `.pi/agent`, `~/.agents/skills` at `/skills` (set
-`agent.skillsDir: /skills`), `data/` and `work/`. It gets no host credentials, no kubeconfig, and no
-Docker socket.
+`agent.skillsDir: /skills`), `data/` and `work/`. The review agent is not copied into the repository:
+`AGENT_DIR_HOST` in `.env` names its directory on the host, and compose binds it read-only at that same
+absolute path, which keeps one `agent.agentDir` correct in and out of the container.
+`LAIDBACK_AGENT_NAME` and `LAIDBACK_AGENT_DIR` pass through as well, for a machine that would rather not
+name the agent in a config file. It gets no host credentials, no kubeconfig, and no Docker socket.
 
 ## Reading the decisions
 
