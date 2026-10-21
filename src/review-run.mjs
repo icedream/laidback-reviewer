@@ -117,8 +117,11 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   const notes = [];
   if (!collector.submitted) notes.push("the run ended without review_submit; composing from what was recorded");
   for (const entry of guard.log) {
-    notes.push(`blocked ${entry.tool}: ${entry.reason}`);
-    log(`blocked ${entry.tool}: ${entry.reason}`);
+    // The command is kept so a denied call can be reviewed: a false positive in the deny list would
+    // otherwise look like the model misbehaving.
+    const detail = `${entry.tool}: ${entry.reason}${entry.command ? ` (${String(entry.command).slice(0, 120)})` : ""}`;
+    notes.push(`blocked ${detail}`);
+    log(`blocked ${detail}`);
   }
 
   const proposal = collector.asProposal();

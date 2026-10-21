@@ -26,7 +26,11 @@ function verdictLineFor(verdict, action, cfg, proposal) {
   if (verdict === "request_changes") {
     const blockers = (proposal?.blocking ?? []).filter(Boolean);
     const base = cfg.reviews.hintWording.requestChanges;
-    return blockers.length ? `${base} Blocking: ${blockers.join("; ")}` : base;
+    if (!blockers.length) return base;
+    const list = blockers.join("; ");
+    // Long blocker lists are the inline comments restated. Keep the sentence short and point at them.
+    if (list.length <= 160) return `${base} Blocking: ${list}`;
+    return `${base} Blocking ${blockers.length} items, named in the inline comments.`;
   }
   return "";
 }

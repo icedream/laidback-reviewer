@@ -47,6 +47,23 @@ test("a requested change in hint mode names the blockers", () => {
   assert.match(composed.payload.body, /I would have requested changes\. Blocking: offset skips a page/);
 });
 
+test("a long blocker list points at the comments instead of restating them", () => {
+  const composed = composeReview({
+    proposal: proposal({
+      verdict: "request_changes",
+      blocking: [
+        "internal/api/pagination.go:22-24 Offset() skips the first page of orders because page is 1-based",
+        "internal/service/orders.go:79 the decode error is discarded so a broken upstream reads as empty",
+        "internal/api/pagination.go:29-42 the lower-bound validation that answered 400 is gone",
+      ],
+    }),
+    cfg: cfg(),
+    files,
+    headSha: "abc",
+  });
+  assert.match(composed.payload.body, /Blocking 3 items, named in the inline comments\./);
+});
+
 test("the configured suffix lands at the end of the body and the prefix at the start", () => {
   const config = cfg();
   config.banner.prefix = "On leave this week; this review is the bot.";
