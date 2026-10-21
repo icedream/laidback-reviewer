@@ -7,17 +7,39 @@
  * loudly and land in `blocked`.
  */
 
+// Deny patterns are matched against the command positions, not against arbitrary text: a review that
+// quotes `go mod tidy` in a note, or greps a path containing `docker`, is not running either thing.
 const BASH_DENY = [
   { re: /\bgit\b[^|;&]*\bpush\b/, reason: "git push is not permitted: a review bot has no write access to repository contents" },
   { re: /\bgit\s+config\b.*(credential|url\.|remote\.|insteadOf)/, reason: "git config for credentials, URL rewriting, or remotes is not permitted" },
-  { re: /\bgit\b[^|;&]*\b(commit|merge|rebase|reset\s+--hard|checkout\s+-b|switch\s+-c|tag)\b/, reason: "git history changes are not permitted" },
+  // merge-base and merge-tree are read-only lookups; plain `git merge` is not.
+  { re: /\bgit\b[^|;&]*\b(commit|merge(?!-)|rebase|reset\s+--hard|checkout\s+-b|switch\s+-c|tag)\b/, reason: "git history changes are not permitted" },
   { re: /\bgh\s+pr\s+(merge|close|review|ready|rebase|comment)\b/, reason: "gh pr writes are not permitted; reviews go through the harness" },
-  { re: /\bgh\s+(repo|release|workflow|run|secret|auth|extension)\b/, reason: "this gh subcommand is not permitted" },
+  { re: /\bgh\s+(repo|release|workflow|run|secret|auth(?!\s+status)\b|extension)\b/, reason: "this gh subcommand is not permitted" },
   { re: /\bgh\s+api\b[^|;&]*(--input|-X\s*(POST|PUT|PATCH|DELETE)|--method\s+(POST|PUT|PATCH|DELETE))/, reason: "gh api writes are not permitted" },
-  { re: /\b(kubectl|helm|docker|podman|terraform|ansible|ssh|scp)\b/, reason: "deploy and remote-access tools are not available to a review run" },
-  { re: /\b(npm\s+publish|go\s+mod\s+(tidy|vendor)|pip\s+install|apt(-get)?\s+install)\b/, reason: "supply-chain and package-manager writes are not permitted" },
+  { re: /(^|[|;&(]\s*)(sudo\s+)?(kubectl|helm|docker|podman|terraform|ansible|ssh|scp)\s/, reason: "deploy and remote-access tools are not available to a review run" },
+  { re: /(^|[|;&(]\s*)(npm\s+publish|go\s+mod\s+(tidy|vendor)|pip\s+install|apt(-get)?\s+install)\b/, reason: "supply-chain and package-manager writes are not permitted" },
   { re: /\brm\s+-rf\b(?![^|;]*\/tmp)/, reason: "recursive delete is limited to /tmp" },
 ];
+
+// Notes and scratch records often quote the commands they are talking about, so a heredoc body is not
+// a command.
+function stripHeredocs(command) {
+  return String(command)
+    .replace(/<<-?\s*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?[\s\S]*?\n\s*\1\b/g, "<<removed")
+    .replace(/<<-?\s*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?[^\n]*$/g, "<<removed");
+}
+
+const MANIFEST_FILES = /\b(go\.(mod|sum|work)(\.tmp)?|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|requirements[^\s]*\.txt|Pipfile\.lock|poetry\.lock|Cargo\.lock|composer\.lock)\b/g;
+
+/**
+ * A manifest being written, as opposed to being read: redirects, tee, and a copy or move whose
+ * destination is a manifest. Writing a note about manifests under the scratch root is allowed.
+ */
+function manifestWriteDenied(command) {
+  const writes = [...command.matchAll(/(?:>>?|\btee\s+(?:-a\s+)?)\s*([^|;&\s]+)/g), ...command.matchAll(/\b(?:cp|mv|rsync)\b[^|;&]*?\s([^|;&\s]+)\s*$/gm)];
+  return writes.some((match) => MANIFEST_FILES.test(match[1].trim()));
+}
 
 const READ_DENY = [
   { re: /(^|\/)\.pi\/agent\/auth\.json$/, reason: "model credentials are not readable by a review run" },
@@ -61,8 +83,14 @@ export function createReviewGuard({ allowHosts = [], bashEnabled = true, writabl
       if (event.toolName === "bash") {
         if (!bashEnabled) return block({ tool: "bash", reason: "bash is disabled by configuration" });
         const command = String(input.command ?? "");
+        // A heredoc body is text the command carries, not commands it runs: a review note that quotes
+        // `go mod tidy` must not read as running it.
+        const runnable = stripHeredocs(command);
         for (const rule of BASH_DENY) {
-          if (rule.re.test(command)) return block({ tool: "bash", command, reason: rule.reason });
+          if (rule.re.test(runnable)) return block({ tool: "bash", command, reason: rule.reason });
+        }
+        if (manifestWriteDenied(runnable)) {
+          return block({ tool: "bash", command, reason: "writing a dependency manifest is not permitted; propose the change instead" });
         }
         if (/\b(curl|wget)\b/.test(command)) {
           const reason = hostAllowDenied(command, allowHosts);

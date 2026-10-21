@@ -5,7 +5,7 @@
 
 import { commentableLines } from "../github/anchoring.mjs";
 
-export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, context = null, compareDir = null, lint = null }) {
+export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, context = null, compareDir = null, lint = null, writableRoots = [] }) {
   const sections = [];
 
   sections.push(`Review pull request #${pr.number} in ${pr.repository}.`);
@@ -37,6 +37,18 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, c
       }),
     ].join("\n"),
   );
+
+  if (writableRoots.length) {
+    const roots = writableRoots.length === 1 ? writableRoots[0] : `${writableRoots.slice(0, -1).join(", ")} and ${writableRoots.at(-1)}`;
+    sections.push(
+      [
+        `Scratch space. Writing is allowed under ${roots}: notes you take while reading,`,
+        `patched copies of a manifest, fetched refs, build output. Any other path is refused by the`,
+        `tool policy and lands in the harness notes, so do not spend a turn probing it. Never write`,
+        `inside the checkout itself.`,
+      ].join("\n"),
+    );
+  }
 
   if (compareDir) {
     sections.push(

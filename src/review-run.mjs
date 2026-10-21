@@ -85,10 +85,13 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   }
 
   const collector = createProposalCollector();
+  // One list for both halves: the guard allows these paths and the prompt names them, so the agent is
+  // not discovering the write boundary by hitting it.
+  const writableRoots = [cfg.checkout.scratch, "/tmp"];
   const guard = createReviewGuard({
     allowHosts: cfg.tools.allowHosts,
     bashEnabled: cfg.tools.bash,
-    writableRoots: [cfg.checkout.scratch, "/tmp"],
+    writableRoots,
   });
 
   const contract = nonInteractiveContract({ cfg, checkoutDir, prRef: pr.repository });
@@ -112,6 +115,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     headSha,
     prior: { reviews, comments },
     compareDir,
+    writableRoots,
     lint: lint.mode === "off" ? null : lint,
     context: context.matched ? { description: context.description, instructions: context.instructions } : null,
   });
