@@ -6,6 +6,7 @@
  * node src/cli/gate.mjs show <id>
  * node src/cli/gate.mjs approve <id>
  * node src/cli/gate.mjs reject <id> [reason]
+ * node src/cli/gate.mjs hold <id>
  */
 
 import fs from "node:fs";
@@ -15,7 +16,7 @@ const STATE_DB = process.env.LAIDBACK_STATE_DB || "data/state.db";
 
 function usage(message) {
   if (message) console.error(message);
-  console.error("usage: node src/cli/gate.mjs list | show <id> | approve <id> | reject <id> [reason]");
+  console.error("usage: node src/cli/gate.mjs list | show <id> | approve <id> | reject <id> [reason] | hold <id>");
   process.exit(message ? 1 : 0);
 }
 
@@ -51,6 +52,12 @@ function main() {
     if (command === "approve" && decided.review_id) {
       console.log(`review ${decided.review_id} is approved; post it with: node src/cli/post-approved.mjs ${decided.review_id}`);
     }
+    return;
+  }
+
+  if (command === "hold") {
+    // Same meaning as `hold <id>` in Slack: leave the gate alone, post nothing.
+    console.log(`gate ${id} stays ${gate.state}; nothing is posted, and it expires after gate.timeoutHours if nobody decides it`);
     return;
   }
 
