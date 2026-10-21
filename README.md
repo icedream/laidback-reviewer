@@ -57,12 +57,16 @@ docker compose build
 docker compose up
 ```
 
-The container mounts `config.yaml`, `.pi/agent`, `~/.agents/skills` at `/skills` (set
-`agent.skillsDir: /skills`), `data/` and `work/`. The review agent is not copied into the repository:
-`AGENT_DIR_HOST` in `.env` names its directory on the host, and compose binds it read-only at that same
-absolute path, which keeps one `agent.agentDir` correct in and out of the container.
-`LAIDBACK_AGENT_NAME` and `LAIDBACK_AGENT_DIR` pass through as well, for a machine that would rather not
-name the agent in a config file. It gets no host credentials, no kubeconfig, and no Docker socket.
+The base compose file mounts what the repository owns: `config.yaml`, `.pi/agent`, `data/` and `work/`.
+Anything naming a path on this machine goes in an untracked `docker-compose.override.yml` beside it,
+which compose merges by itself: the review agent directory (`AGENT_DIR_HOST`), the skills the review
+standard is written in (`SKILLS_HOST`, bound at `/skills`, so set `agent.skillsDir: /skills`), the
+manifest cache those skills are symlinked into (`SKILLS_CACHE_HOST`, needed at the same absolute path or
+the skills mount dangles), and a `models.json` kept outside the repository (`MODELS_JSON_HOST`). The
+agent directory is bound at its own host path, which keeps one `agent.agentDir` correct in and out of
+the container. `LAIDBACK_AGENT_NAME` and `LAIDBACK_AGENT_DIR` pass through as well, for a machine that
+would rather not name the agent in a config file. It gets no host credentials, no kubeconfig, and no
+Docker socket.
 
 ## Reading the decisions
 

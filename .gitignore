@@ -15,3 +15,7 @@ work/
 # Local configuration: copy config.example.yaml and fill it in. Secrets are environment variables
 # either way, but the values here are machine-specific and not for the published tree.
 config.yaml
+
+# Host paths of a review agent, skills checkout and models.json. Compose merges this over
+# docker-compose.yml automatically; the base file works without it.
+docker-compose.override.yml

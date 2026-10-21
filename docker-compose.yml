@@ -14,12 +14,15 @@ services:
       - LAIDBACK_CONFIG=/app/config.yaml
       - LAIDBACK_STATE_DB=/data/state.db
       - LAIDBACK_ARTIFACT_DIR=/data/reviews
+      # Clones, worktrees, ref comparisons, the git config and per-repo linter installs. Set once, it
+      # replaces the relative defaults so nothing resolves onto the read-only rootfs.
+      - LAIDBACK_WORK_DIR=/work
       - PI_CODING_AGENT_DIR=/app/.pi/agent
       # Where the review agent lives, and its name: set these in .env rather than baking a machine path
       # into config.yaml.
       - LAIDBACK_AGENT_DIR
       - LAIDBACK_AGENT_NAME
-      - LAIDBACK_SKILLS_DIR=/skills
+      - LAIDBACK_SKILLS_DIR
       - SLACK_MCP_XOXB_TOKEN
       - SLACK_MCP_XOXC_TOKEN
       - SLACK_MCP_XOXD_TOKEN
@@ -27,7 +30,7 @@ services:
     command: ["node", "src/index.mjs"]
     volumes:
       # Configuration and the Pi agent dir the bot owns: models.json for the model provider, agents/
-      # for the review agent, skills it may read. Not the host's ~/.pi/agent.
+      # for the review agent. Not the host's ~/.pi/agent.
       - type: bind
         source: ${PWD}/config.yaml
         target: /app/config.yaml
@@ -35,24 +38,12 @@ services:
       - type: bind
         source: ${PWD}/.pi/agent
         target: /app/.pi/agent
-      # The model provider definition, mounted from the host so there is one copy of the credential
-      # material. Without MODELS_JSON_HOST, the repository's own gitignored copy is used.
-      - type: bind
-        source: ${MODELS_JSON_HOST:-${PWD}/.pi/agent/models.json}
-        target: /app/.pi/agent/models.json
-        read_only: true
-      # The review agent definition, mounted at the same absolute path it has on the host so one
-      # agentDir in config.yaml is correct both in and out of the container. AGENT_DIR_HOST in .env
-      # points at it; without that, the repository's own (untracked) agents dir is used.
-      - type: bind
-        source: ${AGENT_DIR_HOST:-${PWD}/.pi/agent/agents}
-        target: ${AGENT_DIR_HOST:-${PWD}/.pi/agent/agents}
-        read_only: true
-      # Review standard, mounted read-only: the org skills the agent cites.
-      - type: bind
-        source: ${HOME}/.agents/skills
-        target: /skills
-        read_only: true
+      # Machine-specific mounts belong in an untracked docker-compose.override.yml next to this file,
+      # which compose merges automatically: the host paths of a review agent (${AGENT_DIR_HOST}), a
+      # skills checkout (${SKILLS_HOST}), the manifest cache those skills symlink into
+      # (${SKILLS_CACHE_HOST}), and a models.json kept outside the repository (${MODELS_JSON_HOST}).
+      # They describe this machine, so they are not published with the bot, and the base file runs
+      # without them.
       # State, sessions, review records, Go and linter caches.
       - type: bind
         source: ${PWD}/data
