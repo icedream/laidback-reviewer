@@ -14,6 +14,7 @@ import { createGithubClient } from "../../src/github/client.mjs";
 import { createFakeGithubApi } from "../fakes/github-api.mjs";
 import { createScriptedModel, reviewScript } from "../fakes/model.mjs";
 import { buildFixtureRepo } from "../fixtures/repo.mjs";
+import { cycle } from "../../src/loop.mjs";
 import { runReview } from "../../src/review-run.mjs";
 
 export const FAKE_MODEL_PROVIDER = "laidback-fake";
@@ -49,10 +50,13 @@ export function baseConfig({ dir }) {
       agentDir: path.join(dir, "agent", "agents"),
       skillsDir: "",
       systemPromptAddendum: "",
-      model: { provider: FAKE_MODEL_PROVIDER, id: FAKE_MODEL_ID, thinking: "off", maxConcurrency: 1, busyBackoffMs: 0 },
+      model: { provider: FAKE_MODEL_PROVIDER, id: FAKE_MODEL_ID, thinking: "off", maxConcurrency: 1, busyBackoffMs: 0, busyRetries: 0 },
     },
     context: { enabled: false, maxAgeDays: 30, minScore: 35, allowCrossRepo: false, sessionDir: "", mode: "auto", maxForkTokens: 48000 },
     checkout: { mode: "existing", root: path.join(dir, "repos"), scratch: path.join(dir, "scratch"), compareDir: path.join(dir, "scratch", "refs"), gitConfig: path.join(dir, "gitconfig"), existingDir: "", goPrivate: [] },
+    // Tests never reach the network, so the installer is off unless a test turns it on and points
+    // downloadBaseUrl at a local release server.
+    toolchain: { golangciLint: "off", installDir: path.join(dir, "tools"), preferRepoVersion: true, downloadBaseUrl: "https://github.com" },
     tools: { bash: true, mcp: [], allowHosts: ["127.0.0.1", "api.github.com"] },
     gate: {
       channel: "none",
@@ -70,7 +74,7 @@ export function baseConfig({ dir }) {
  * Bring up one review run. `overrides` is a partial config tree, so each test reads as a policy
  * difference rather than a new environment.
  */
-export async function setupReviewRun({ overrides = {}, scriptOptions = {}, turns = null, env = {}, jira = false, context = null } = {}) {
+export async function setupReviewRun({ overrides = {}, scriptOptions = {}, turns = null, env = {}, jira = false, context = null, modelFails = [] } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "laidback-test-"));
   fs.mkdirSync(path.join(dir, "scratch"), { recursive: true });
   let jiraCallsPath = null;
@@ -80,7 +84,7 @@ export async function setupReviewRun({ overrides = {}, scriptOptions = {}, turns
   const { baseUrl: githubBaseUrl } = await github.start();
 
   const script = typeof turns === "function" ? turns(fixture, fixture.dir) : turns;
-  const model = createScriptedModel({ turns: script ?? reviewScript({ fixture, scratchDir: fixture.dir, ...scriptOptions }) });
+  const model = createScriptedModel({ turns: script ?? reviewScript({ fixture, scratchDir: fixture.dir, ...scriptOptions }), failAttempts: modelFails });
   const { baseUrl: modelBaseUrl } = await model.start();
 
   const agentDir = path.join(dir, "agent");
@@ -117,6 +121,9 @@ export async function setupReviewRun({ overrides = {}, scriptOptions = {}, turns
 
   const configPath = path.join(dir, "config.yaml");
   const tree = merge(baseConfig({ dir }), overrides);
+
+  // The poll loop resolves the checkout itself; point it at the fixture so both paths agree.
+  tree.checkout = { ...tree.checkout, existingDir: tree.checkout.existingDir || fixture.dir };
 
   if (context) {
     // Sessions are persisted under the temp dir so a second run in the same env can pick them up.
@@ -180,6 +187,19 @@ export async function setupReviewRun({ overrides = {}, scriptOptions = {}, turns
     cfg,
     fixture,
     sessionsDir: tree.context.sessionDir,
+    /** Drive one poll cycle, which is what the retry scheduling needs. */
+    cycle: (opts = {}) =>
+      cycle({
+        cfg,
+        store,
+        client,
+        slack: null,
+        piAgentDir: agentDir,
+        artifactDir: path.join(dir, "reviews"),
+        log: (line) => logLines.push(String(line)),
+        logErr: (line) => logLines.push(String(line)),
+        ...opts,
+      }),
     github,
     model,
     store,

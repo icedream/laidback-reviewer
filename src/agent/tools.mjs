@@ -19,6 +19,10 @@ export function createProposalCollector() {
     gates: [],
     submitted: false,
     summary: "",
+    /** Nothing usable came out of the turn: used to decide whether to ask the session to continue. */
+    isEmpty() {
+      return !this.comments.length && !this.body && !this.verdict && !this.submitted;
+    },
     asProposal() {
       return {
         comments: this.comments,

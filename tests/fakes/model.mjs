@@ -15,8 +15,9 @@ function chunk(body) {
   return `data: ${JSON.stringify(body)}\n\n`;
 }
 
-export function createScriptedModel({ turns, model = "scripted-review" }) {
+export function createScriptedModel({ turns, model = "scripted-review", failAttempts = [] }) {
   const requests = [];
+  const failing = new Set(failAttempts);
   let turn = 0;
 
   const server = http.createServer((req, res) => {
@@ -24,6 +25,24 @@ export function createScriptedModel({ turns, model = "scripted-review" }) {
     req.on("data", (chunkData) => chunks.push(chunkData));
     req.on("end", () => {
       const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+
+      // A busy upstream: the attempt is recorded but consumes no script turn, so the client's retry
+      // resumes with the turn it never got.
+      if (failing.has(requests.length)) {
+        requests.push({
+          path: req.url,
+          model: body.model,
+          messages: body.messages,
+          tools: (body.tools ?? []).map((tool) => tool.function?.name ?? tool.name),
+          turn,
+          failed: true,
+          status: 503,
+        });
+        res.writeHead(503, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: { message: "model server is busy", type: "server_error", code: "model_overloaded" } }));
+        return;
+      }
+
       const script = turns[turn] ?? { content: "script exhausted" };
       const request = {
         path: req.url,

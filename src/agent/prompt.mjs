@@ -5,7 +5,7 @@
 
 import { commentableLines } from "../github/anchoring.mjs";
 
-export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, context = null, compareDir = null }) {
+export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, context = null, compareDir = null, lint = null }) {
   const sections = [];
 
   sections.push(`Review pull request #${pr.number} in ${pr.repository}.`);
@@ -53,6 +53,8 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, c
     );
   }
 
+  if (lint) sections.push(lintBlock(lint));
+
   if (prior.reviews?.length || prior.comments?.length) {
     const existing = [
       ...prior.reviews.map((review) => `review ${review.id} by ${review.user?.login}: ${review.state}`),
@@ -85,6 +87,26 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, c
   );
 
   return sections.join("\n\n");
+}
+
+/**
+ * What the model may assume about the linter. A v1 binary cannot load a v2 config, which is a
+ * tooling gap rather than a defect in the branch.
+ */
+function lintBlock(lint) {
+  const lines = [];
+  if (lint.requestedVersion) lines.push(`Linting. This repository pins golangci-lint ${lint.requestedVersion} in ${lint.source}.`);
+  else lines.push(`Linting. No linter version is pinned (${lint.source}), so the image's golangci-lint is what you get.`);
+
+  if (lint.configSchema) lines.push(`Its config ${lint.configSchema.source} declares schema version ${lint.configSchema.major}, so only a matching major can load it.`);
+  if (lint.installedPath) lines.push(`Use ${lint.installedPath} for the lint gate; the harness installed it for this run.`);
+  if (lint.note) lines.push(`Tooling note: ${lint.note}.`);
+  if (lint.conflict) {
+    const pins = lint.pins.map((pin) => `${pin.version} (${pin.source})`).join(", ");
+    lines.push(`The pins disagree (${pins}). Run the gate the way CI runs it, and say which version you used.`);
+  }
+  lines.push("A linter that cannot start, or a version that is unavailable here, is a tooling gap: record the gate as not_run with the reason, and do not report it as a defect in this change.");
+  return lines.join("\n");
 }
 
 export function extractTicketKeys(text) {

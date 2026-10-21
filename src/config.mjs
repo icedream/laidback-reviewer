@@ -41,6 +41,11 @@ export const CONFIG_SCHEMA = record({
       approve: string({ def: "Verdict: I would have approved this." }),
       requestChanges: string({ def: "Verdict: I would have requested changes." }),
     }),
+    // Failures are recorded per (pr, head): the next attempt waits, and a head that keeps failing is
+    // parked.
+    maxAttemptsPerHead: integer({ def: 4, min: 1 }),
+    retryBaseMs: integer({ def: 120_000, min: 1_000 }),
+    retryMaxMs: integer({ def: 21_600_000, min: 1_000 }),
   }),
   banner: record({
     prefix: string({ def: "" }),
@@ -59,7 +64,19 @@ export const CONFIG_SCHEMA = record({
       maxConcurrency: integer({ def: 1, min: 1 }),
       lockFile: string({ def: "" }),
       busyBackoffMs: integer({ def: 30_000, min: 0 }),
+      // Transient model errors re-prompt the same session before the run counts as a failure.
+      busyRetries: integer({ def: 2, min: 0, max: 6 }),
     }),
+  }),
+  toolchain: record({
+    // "auto" takes the version the repository pins, "off" leaves the image's version alone, any
+    // other value is a release tag fetched into installDir. Config schemas are not interchangeable
+    // across linter majors.
+    golangciLint: string({ def: "auto" }),
+    installDir: string({ def: "work/tools" }),
+    // Change for a mirror, an air-gapped network, or a test server.
+    downloadBaseUrl: string({ def: "https://github.com" }),
+        preferRepoVersion: bool({ def: true }),
   }),
   context: record({
     enabled: bool({ def: true }),

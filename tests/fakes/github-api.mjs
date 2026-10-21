@@ -59,6 +59,14 @@ export function createFakeGithubApi({ fixture, me = "octocat", token = "test-tok
       handle: () => pr,
     },
     {
+      match: (method, p) => method === "GET" && p === "/search/issues",
+      handle: () => ({
+        total_count: 1,
+        incomplete_results: false,
+        items: [{ number: fixture.pr, repository_url: apiBase, html_url: pr.html_url, updated_at: pr.updated_at, pull_request: { draft: false } }],
+      }),
+    },
+    {
       // How a stack link is found: the PR whose head is this PR's base branch.
       match: (method, p) => method === "GET" && p === `${apiBase}/pulls`,
       handle: (query = {}) => (fixture.stackPulls ?? []).filter((pull) => `${fixture.owner}:${pull.head.ref}` === query.head),

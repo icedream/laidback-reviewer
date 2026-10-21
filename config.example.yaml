@@ -60,6 +60,12 @@ checkout:
   existingDir: ""
   goPrivate: ["github.com/example-corp/*"]
 
+toolchain:
+  golangciLint: auto                # auto = install what the repo pins | off = image version | v2.3.1 = that tag
+  installDir: work/tools            # writable; the image's own copy stays untouched
+  preferRepoVersion: true           # false = always use the image's linter
+  downloadBaseUrl: https://github.com   # change for a mirror or an air-gapped network
+
 tools:
   bash: true                        # tests, lint, read-only gh subcommands
   mcp: [atlassian]                  # read-only enforced regardless of what the credential allows
@@ -67,6 +73,7 @@ tools:
     - github.com
     - api.github.com
     - raw.githubusercontent.com
+    - release-assets.githubusercontent.com   # release downloads redirect here, and every hop is checked
     - mcp.atlassian.com
 
 gate:

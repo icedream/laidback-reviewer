@@ -58,6 +58,19 @@ CREATE TABLE IF NOT EXISTS gates (
   reason TEXT
 );
 
+CREATE TABLE IF NOT EXISTS failures (
+  owner TEXT NOT NULL,
+  repo TEXT NOT NULL,
+  pr INTEGER NOT NULL,
+  head_sha TEXT NOT NULL,
+  attempts INTEGER NOT NULL,
+  last_error TEXT,
+  next_try_at TEXT NOT NULL,
+  parked INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (owner, repo, pr, head_sha)
+);
+
 CREATE TABLE IF NOT EXISTS seen (
   owner TEXT NOT NULL,
   repo TEXT NOT NULL,
@@ -130,6 +143,15 @@ export function createStore(db) {
     markSeen: db.prepare(
       `INSERT OR REPLACE INTO seen (owner, repo, pr, head_sha, checked_at) VALUES (@owner, @repo, @pr, @head_sha, @now)`,
     ),
+    getFailure: db.prepare(`SELECT * FROM failures WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha`),
+    upsertFailure: db.prepare(
+      `INSERT INTO failures (owner, repo, pr, head_sha, attempts, last_error, next_try_at, parked, updated_at)
+       VALUES (@owner, @repo, @pr, @head_sha, @attempts, @last_error, @next_try_at, @parked, @now)
+       ON CONFLICT(owner, repo, pr, head_sha)
+       DO UPDATE SET attempts = @attempts, last_error = @last_error, next_try_at = @next_try_at, parked = @parked, updated_at = @now`,
+    ),
+    clearFailure: db.prepare(`DELETE FROM failures WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha`),
+    listFailures: db.prepare(`SELECT * FROM failures ORDER BY updated_at DESC LIMIT 100`),
     getReview: db.prepare(`SELECT * FROM reviews WHERE id = @id`),
     reviewFor: db.prepare(`SELECT * FROM reviews WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha`),
     commentsFor: db.prepare(`SELECT * FROM comments WHERE review_id = @review_id ORDER BY id`),
@@ -157,6 +179,11 @@ export function createStore(db) {
     markSeen({ owner, repo, pr, head_sha }) {
       statements.markSeen.run({ owner, repo, pr, head_sha, now: now() });
     },
+
+    getFailure: (key) => statements.getFailure.get(key),
+    recordFailure: (row) => statements.upsertFailure.run({ ...row, now: row.now ?? now() }),
+    clearFailure: (key) => statements.clearFailure.run(key),
+    listFailures: () => statements.listFailures.all(),
 
     /** Persist one composed review plus its comments. Returns the review row id. */
     saveReview({ owner, repo, pr, head_sha, composed, dryRun, notes = [] }) {

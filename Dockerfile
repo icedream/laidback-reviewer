@@ -1,8 +1,10 @@
 FROM node:24-slim
 
-# Pinned so the bot runs the gates the way CI runs them. Update deliberately, not by drift.
+# Pinned so the bot runs the gates the way CI runs them. Update deliberately, not by drift. This is a
+# floor, not a promise: repositories pin their own golangci-lint, and the harness installs a pinned
+# release that differs from this one into the writable tools dir at run time.
 ARG GO_VERSION=1.24.6
-ARG GOLANGCI_LINT_VERSION=v1.62.2
+ARG GOLANGCI_LINT_VERSION=v2.15.0
 ARG GH_VERSION=2.66.1
 
 RUN apt-get update \
@@ -19,8 +21,12 @@ RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -xz 
  && ln -s /usr/local/go/bin/go /usr/local/bin/go \
  && ln -s /usr/local/go/bin/gofmt /usr/local/bin/gofmt
 
-RUN curl -fsSL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
-      | bash -s -- -b /usr/local/bin "${GOLANGCI_LINT_VERSION}"
+RUN curl -fsSL "https://github.com/golangci/golangci-lint/releases/download/${GOLANGCI_LINT_VERSION}/golangci-lint-${GOLANGCI_LINT_VERSION#v}-linux-amd64.tar.gz" \
+    | tar -xz -C /tmp \
+ && mv "/tmp/golangci-lint-${GOLANGCI_LINT_VERSION#v}-linux-amd64/golangci-lint" /usr/local/bin/golangci-lint \
+ && chmod 755 /usr/local/bin/golangci-lint \
+ && rm -rf "/tmp/golangci-lint-${GOLANGCI_LINT_VERSION#v}-linux-amd64" \
+ && golangci-lint --version
 
 WORKDIR /app
 

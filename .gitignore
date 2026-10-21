@@ -4,6 +4,8 @@ work/
 .env
 .pi/agent/auth.json
 .pi/agent/models.json
+.pi/agent/models-store.json
+.pi/agent/npm/
 .pi/npm/
 *.log
 

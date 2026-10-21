@@ -84,7 +84,7 @@ const BASE_FILES = {
 
 go 1.24
 `,
-  "Makefile": `GOLANGCI_LINT_VERSION ?= v1.62.2
+  "Makefile": `GOLANGCI_LINT_VERSION ?= v2.15.0
 
 fmt:
 \tgofmt -l -w .
@@ -111,7 +111,7 @@ jobs:
   go:
     runs-on: ubuntu-latest
     env:
-      GOLANGCI_LINT_VERSION: v1.62.2
+      GOLANGCI_LINT_VERSION: v2.15.0
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
