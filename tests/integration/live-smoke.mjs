@@ -27,7 +27,20 @@ function arg(name, fallback) {
 }
 
 const hostAgentDir = arg("agent-dir", path.join(os.homedir(), ".pi", "agent"));
-const provider = arg("provider", process.env.LAIDBACK_MODEL_PROVIDER ?? "local/strata");
+// No default provider: the id lives in each machine's models.json, and a made-up default fails with a
+// confusing "model is not available" list instead of saying what to set.
+const provider = arg("provider", process.env.LAIDBACK_MODEL_PROVIDER);
+if (!provider) {
+  console.error(
+    [
+      "No model provider for the smoke run.",
+      "Set LAIDBACK_MODEL_PROVIDER to a provider id from your Pi agent dir's models.json,",
+      "or pass --provider <provider> --model <id>. The id is the key under \"providers\"",
+      "(for example, whatever your local inference server is registered as).",
+    ].join(" "),
+  );
+  process.exit(1);
+}
 const modelId = arg("model", process.env.LAIDBACK_MODEL_ID ?? "qwen3.8-flash-next-iq3_s");
 const thinking = arg("thinking", "xhigh");
 const agentName = arg("agent", "pr-review");

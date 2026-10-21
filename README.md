@@ -133,8 +133,36 @@ Sessions live in `context.sessionDir`. A run picks up the most relevant session 
 `context.maxAgeDays` for the same repository: the same PR at an earlier head, then a stack sibling,
 then the same branch, then the same ticket key. A session that fits `context.maxForkTokens` is
 forked with `SessionManager.forkFrom`; a larger one is carried over as a digest of its findings,
-because replaying a month of transcript through a local model costs minutes of prompt processing for
-less value than the findings list.
+because replaying a long transcript through a local model costs minutes of prompt processing to recover
+what the findings row already holds.
+
+## When a run fails
+
+A failed review is recorded against that (PR, head) and retried on a spacing curve: `reviews.retryBaseMs`
+doubling up to `reviews.retryMaxMs`, and after `reviews.maxAttemptsPerHead` attempts the head is parked
+and left alone until the state is cleared. Without that, one branch that does not build plus a two
+minute poll interval is an endless loop that also keeps spending API calls. The startup summary prints
+parked heads.
+
+A busy inference endpoint is not treated as a failed run. Transient errors (refused connection,
+timeout, 429, 5xx) are retried on the *same session* up to `agent.model.busyRetries` times with
+`agent.model.busyBackoffMs` between attempts, and so is a turn that comes back with no review in it:
+the session has already read the diff and run the gates, so it is asked to continue rather than start
+over. A hard error (context length exceeded, bad tool call) is raised immediately.
+
+## Linter versions
+
+The image ships `golangci-lint` v2, pinned by `GOLANGCI_LINT_VERSION` at build time. That is a floor:
+repositories pin their own versions, and a v1 binary cannot read a v2 config at all. With `toolchain.golangciLint: auto` the harness reads the pins from the repository
+(CI workflow first, then `.tool-versions`/`.mise.toml`/Makefile), notes the schema version the config
+file declares, and installs the pinned release into `toolchain.installDir` without touching the image.
+Every hop of the download is checked against `tools.allowHosts`, which is why the example config lists
+the GitHub asset CDN as well as `github.com`. Set `golangciLint: off` to use only the image's copy, or
+an explicit tag to force one.
+
+A linter that will not start is a tooling gap, not a defect in the branch: the task prompt says so, and
+the expected outcome is a gate recorded as `not_run` with the reason. When the pins disagree, the
+disagreement is named in the prompt and in the run record.
 
 ## Tests
 
@@ -170,14 +198,16 @@ server.
 ## Layout
 
 ```
-src/index.mjs            poll loop
+src/index.mjs            entry point: config, token-scope probe, startup summary
+src/loop.mjs             the poll cycle: candidates, retry spacing, one review at a time
 src/discovery.mjs        assignment search, policies, dedupe
 src/review-run.mjs       fetch → session → proposal → policy → gate → post
-src/agent/               agent file loading, prompt, tools, guard, session wiring
-src/github/              REST client, diff anchoring, poster
-src/proposal/            policy mapping, store, run record, re-posting approved reviews
+src/agent/               agent file loading, prompt, tools, guard, session wiring, busy-model retry
+src/github/              REST client, diff anchoring, poster, token-scope probe
+src/proposal/            policy mapping, store, run record, failure spacing, re-posting approved reviews
 src/gate/                gate interface, Slack transport
 src/context/             stack walk, which earlier look to carry over, fork vs digest
+src/tools/               golangci-lint pin detection and installation
 src/cli/                 review-once, gate, post-approved
 tests/                   fixture repository, fake GitHub, fake Jira over MCP, scripted model, integration flow
 ```
@@ -186,10 +216,11 @@ tests/                   fixture repository, fake GitHub, fake Jira over MCP, sc
 
 Implemented: discovery and assignment policies, the review session with proposal tools and tool
 policy, anchoring, verdict policy, banner with optional rephrasing, gate (Slack and CLI), posting,
-per-run records, context pickup over persisted sessions (stack walk, fork or digest), container
-setup, the fixture integration tests and the live smoke run.
+per-run records, context pickup over persisted sessions (stack walk, fork or digest), failure
+spacing and parking, busy-model retries, per-repository linter versions, container setup, the
+fixture integration tests and the live smoke run.
 
-Not yet: the Atlassian
-credential strategy inside the container (mount an authenticated `mcp-auth.json`, or mint a bearer
-token), a Telegram gate adapter, one live Slack gate run, and a live run that shows a forked session
-making the second review better rather than just cheaper.
+Not yet: the Atlassian credential strategy inside the container (mount an authenticated
+`mcp-auth.json`, or mint a bearer token), a Telegram gate adapter, one live Slack gate run, building
+the image to confirm the pinned toolchain installs, and a live run that shows a forked session making
+the second review better rather than just cheaper.
