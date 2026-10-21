@@ -9,3 +9,6 @@ work/
 .pi/npm/
 *.log
 
+# Local configuration: copy config.example.yaml and fill it in. Secrets are environment variables
+# either way, but the values here are machine-specific and not for the published tree.
+config.yaml
