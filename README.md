@@ -13,12 +13,13 @@ comments on the PR that triggered it.
 
 Cannot: push a commit, merge, reopen a draft, deploy. Three layers hold that:
 
-1. **Token scope.** A fine-grained PAT with `Pull requests: read and write`, `Contents: read-only`,
-   `Metadata/Issues/Checks: read-only`. Pushing is refused by GitHub, not by the bot's good intentions.
-   Startup proves it: the bot attempts a contents write whose base sha is not an object in any
-   repository, so a token that could write answers 422 and a scoped token answers 403, and nothing is
-   written either way. A 422 stops the bot from starting. Set `github.probeRepo` to a repository the
-   token can see.
+1. **Write ceiling.** `src/github/client.mjs` refuses any method that is not a read, and any write that
+   is not `POST /repos/<owner>/<repo>/pulls/<n>/reviews`, before the request leaves the process. The
+   credential is expected to be a fine-grained PAT with `Pull requests: read and write`,
+   `Contents: read-only`, `Metadata/Issues/Checks: read-only`. A repository the token cannot read
+   produces a recorded failure against that head and the loop carries on. There is no startup scope
+   probe: proving a credential cannot write means attempting a write, which is the thing the check
+   would be doing.
 2. **No posting tool.** The model has `review_propose_comment`, `review_propose_body`,
    `review_propose_verdict`, `review_record_gate`, `review_submit`. Only `src/github/poster.mjs`
    writes to GitHub, after the policy and the gate.
@@ -303,12 +304,12 @@ onward.
 ## Layout
 
 ```
-src/index.mjs            entry point: config, token-scope probe, startup summary
+src/index.mjs            entry point: config, startup summary, polling loop
 src/loop.mjs             the poll cycle: candidates, retry spacing, one review at a time
 src/discovery.mjs        assignment search, policies, dedupe
 src/review-run.mjs       fetch → session → proposal → policy → gate → post
 src/agent/               agent file loading, prompt, tools, guard, session wiring, busy-model retry
-src/github/              REST client, diff anchoring, poster, token-scope probe
+src/github/              REST client with the write ceiling, diff anchoring, poster
 src/proposal/            policy mapping, store, run record, failure spacing, re-posting approved reviews
 src/gate/                gate interface, Slack transport
 src/context/             stack walk, which earlier look to carry over, fork vs digest

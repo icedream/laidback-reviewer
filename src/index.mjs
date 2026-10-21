@@ -7,7 +7,6 @@
 import { loadConfig, secret } from "./config.mjs";
 import { createGithubClient } from "./github/client.mjs";
 import { describeScope } from "./github/scope.mjs";
-import { probeContentsReadOnly } from "./github/token-probe.mjs";
 import { createSlackGate } from "./gate/slack.mjs";
 import { runLoop } from "./loop.mjs";
 import { openStore } from "./proposal/store.mjs";
@@ -23,6 +22,7 @@ function startupSummary({ cfg, store }) {
       `  agent: ${cfg.agent.name} from ${cfg.agent.agentDir}`,
       `  verdict policy: approve=${cfg.reviews.approve} request_changes=${cfg.reviews.requestChanges}`,
       `  posting: ${cfg.reviews.dryRun ? "DRY RUN, nothing is sent" : "live"}; gate: ${cfg.gate.channel} (before_review ${cfg.gate.beforeReview}, before_post ${cfg.gate.beforePost})`,
+      `  writes: POST /repos/<owner>/<repo>/pulls/<n>/reviews only; any other write is refused locally`,
       `  retries: ${cfg.reviews.maxAttemptsPerHead} attempts per head, spaced from ${cfg.reviews.retryBaseMs}ms to ${cfg.reviews.retryMaxMs}ms`,
       `  tools: read/grep/find/ls${cfg.tools.bash ? " + bash" : ""}, mcp: ${cfg.tools.mcp.join(", ") || "none"}, hosts: ${cfg.tools.allowHosts.join(", ")}`,
       `  state: ${process.env.LAIDBACK_STATE_DB ?? "data/state.db"}, cursor: ${store.getMeta("search_updated_at") ?? "unset"}`,
@@ -50,21 +50,6 @@ async function main() {
   }
 
   startupSummary({ cfg, store });
-
-  // The design assumes the credential cannot write repository contents. Check before the first cycle,
-  // not after a review posts something. A glob in github.repos is not a repository, so only a literal
-  // owner/name can stand in for the probe target.
-  const literalRepo = (cfg.github.repos ?? []).find((pattern) => !/[*?]/.test(pattern));
-  const probeRepo = cfg.github.probeRepo || literalRepo || "";
-  const probe = probeRepo
-    ? await probeContentsReadOnly({ client, repo: probeRepo, log: (line) => console.log(`  ${line}`) })
-    : { verdict: "skipped", detail: "github.probeRepo is unset and github.repos holds no literal owner/name" };
-  if (probe.verdict === "can_write") {
-    throw new Error(`refusing to start: the token can write repository contents (${probe.detail})`);
-  }
-  if (probe.verdict === "read_only") console.log(`token scope: ${probe.detail}`);
-  if (probe.verdict === "unknown") console.log(`token scope unproven: ${probe.detail}`);
-  if (probe.verdict === "skipped") console.log(`token scope not probed: ${probe.detail}`);
 
   const stop = { current: false };
   process.on("SIGINT", () => {

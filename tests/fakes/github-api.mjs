@@ -10,7 +10,7 @@ import http from "node:http";
 
 const OK = { "Content-Type": "application/json" };
 
-export function createFakeGithubApi({ fixture, me = "octocat", token = "test-token" }) {
+export function createFakeGithubApi({ fixture, me = "octocat", token = "test-token", writeStatus = 201 }) {
   const calls = [];
   const postedReviews = [];
   const apiBase = `/repos/${fixture.owner}/${fixture.repo}`;
@@ -132,6 +132,11 @@ export function createFakeGithubApi({ fixture, me = "octocat", token = "test-tok
       }
 
       if (method === "POST" && path === `${apiBase}/pulls/${fixture.pr}/reviews`) {
+        if (writeStatus !== 201) {
+          res.writeHead(writeStatus, OK);
+          res.end(JSON.stringify({ message: "Not Found", documentation_url: "https://docs.github.com/rest/pulls/reviews" }));
+          return;
+        }
         const stateByEvent = { COMMENT: "COMMENTED", APPROVE: "APPROVED", REQUEST_CHANGES: "CHANGES_REQUESTED" };
         const review = {
           id: 900 + postedReviews.length,

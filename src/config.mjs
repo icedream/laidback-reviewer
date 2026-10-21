@@ -22,7 +22,6 @@ export const CONFIG_SCHEMA = record({
     orgs: list(string(), { def: [] }),
     repos: list(string(), { def: [] }),
     deny: list(string(), { def: [] }),
-    probeRepo: string({ def: "" }),
     pollIntervalMs: integer({ def: 120_000, min: 15_000 }),
     searchAgeHours: integer({ def: 24, min: 1 }),
   }),

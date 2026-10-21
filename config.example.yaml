@@ -7,7 +7,6 @@ github:
   orgs: []                          # owners to accept, e.g. [example-corp]; every repo under them
   repos: []                         # owner/name patterns, * for one segment: [example-corp/orders-*]
   deny: []                          # wins over orgs and repos; keeps a repo out even if a list names it
-  probeRepo: ""                     # literal owner/name for the startup scope probe; falls back to the first literal entry in repos
   pollIntervalMs: 120000
   searchAgeHours: 24
 

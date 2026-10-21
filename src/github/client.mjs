@@ -1,12 +1,23 @@
 /**
  * GitHub REST client.
  *
- * One place to hold the capability ceiling: the paths below are all the bot uses, and the only
- * mutating one is `postReview`. The credential behind the token is scoped to match
- * (Pull requests: read and write, Contents: read-only), so the ceiling is not only a convention.
+ * The capability ceiling lives here: the paths below are all the bot uses, and writes are refused
+ * before any request leaves the process unless the route is a pull-request review. The credential is
+ * scoped to match (Pull requests: read and write, Contents: read-only).
  */
 
 const USER_AGENT = "laidback-reviewer";
+
+// A misconfigured token cannot turn this client into a contents writer, which is also why there is no
+// startup probe: a probe would have to attempt a write to find out.
+const WRITE_ROUTES = [/^\/repos\/[^/]+\/[^/]+\/pulls\/\d+\/reviews$/];
+
+export function assertWriteAllowed(method, path) {
+  if (method === "GET" || method === "HEAD") return;
+  const pathname = String(path).split("?")[0];
+  if (WRITE_ROUTES.some((route) => route.test(pathname))) return;
+  throw new GithubError({ method, path, status: 0, message: "refused: this client writes only to a pull-request review endpoint" });
+}
 
 export class GithubError extends Error {
   constructor({ method, path, status, message }) {
@@ -22,6 +33,7 @@ export function createGithubClient({ baseUrl = "https://api.github.com", token, 
   if (!token) throw new Error("GitHub token is empty: check github.tokenEnv in config.yaml");
 
   async function request(method, path, body) {
+    assertWriteAllowed(method, path);
     const url = `${baseUrl.replace(/\/$/, "")}${path}`;
     const response = await fetchImpl(url, {
       method,
@@ -89,12 +101,6 @@ export function createGithubClient({ baseUrl = "https://api.github.com", token, 
     searchAssigned: ({ me, sinceIso }) => searchIssues(`assignee:${me}`, sinceIso),
     searchReviewRequested: ({ me, sinceIso }) => searchIssues(`review-requested:${me}`, sinceIso),
     postReview: (owner, repo, pr, payload) => request("POST", `${repoPath(owner, repo)}/pulls/${pr}/reviews`, payload),
-    /**
-     * Exists only for the startup scope probe in github/token-probe.mjs, which sends a base sha no
-     * repository contains. Nothing else in this codebase calls it, and the point of calling it is to
-     * be refused.
-     */
-    putContents: (owner, repo, path, payload) => request("PUT", `${repoPath(owner, repo)}/contents/${path}`, payload),
   };
 }
 

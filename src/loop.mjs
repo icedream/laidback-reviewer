@@ -30,9 +30,14 @@ export async function cycle({
     for (const gate of decided) log(`gate ${gate.id} ${gate.state} by ${gate.decided_by}${gate.reason ? ` (${gate.reason})` : ""}`);
   }
 
-  // Reviews an admin approved between cycles go out now, re-anchored against the current head.
+  // Reviews an admin approved between cycles go out now, re-anchored against the current head. One
+  // failure must not cost the rest of the cycle: the row stays queued and is retried next time.
   for (const reviewId of store.approvedUnpostedReviews()) {
-    await postApprovedReview({ cfg, store, client, reviewId, log });
+    try {
+      await postApprovedReview({ cfg, store, client, reviewId, log });
+    } catch (error) {
+      log(`  repost ${reviewId.slice(0, 8)} failed: ${error.message}`);
+    }
   }
 
   const { candidates, deferred, rejected, cursorIso } = await findCandidates({ cfg, client, store });

@@ -180,3 +180,25 @@ test("beforePost queues the review instead of sending it", async () => {
     env.close();
   }
 });
+
+test("an approved review that cannot be posted stays queued and the loop keeps going", async () => {
+  // The GitHub side refuses the write, which is what a token without pull-request access looks like.
+  const env = await setupReviewRun({
+    githubOptions: { writeStatus: 403 },
+    overrides: { reviews: { dryRun: false }, gate: { channel: "cli", beforePost: true } },
+  });
+  try {
+    await env.cycle();
+    const pending = env.store.pendingGates();
+    assert.equal(pending.length, 1);
+    env.store.decideGate({ id: pending[0].id, state: "approved", decided_by: "admin" });
+
+    await env.cycle();
+
+    assert.match(env.log(), /repost \S+ failed: .*403/);
+    assert.equal(env.store.approvedUnpostedReviews().length, 1, "the review is still waiting to go out");
+    assert.match(env.log(), /cycle: /, "the cycle ran past the failed repost");
+  } finally {
+    env.close();
+  }
+});
