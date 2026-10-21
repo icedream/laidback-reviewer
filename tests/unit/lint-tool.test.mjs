@@ -255,3 +255,19 @@ test("a shared workflow with no input says where the default may live", async ()
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("a shared workflow takes the version under its environment name", () => {
+  const dir = tree({
+    ".github/workflows/test.yaml":
+      "jobs:\n  test:\n    uses: example-corp/workflows/.github/workflows/go-test.yaml@bb7243d7 # v3.0.3\n    secrets: inherit\n    with:\n      GOLANGCI_LINT_VERSION: \"v2.12.2\"\n",
+  });
+  try {
+    const found = detectLintPins(dir);
+
+    assert.equal(found.chosen.version, "v2.12.2");
+    assert.match(found.chosen.source, /GOLANGCI_LINT_VERSION/);
+    assert.equal(found.reusable.length, 1, "one shared workflow, however many jobs call it");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -17,7 +17,7 @@ const TAG = /\bv?\d+\.\d+(?:\.\d+)?\b/;
 const WORKFLOW_SOURCES = [
   // golangci-lint-action with an explicit version input.
   { name: "golangci-lint-action", pattern: /uses:\s*[^\s]*golangci-lint-action[^\n]*\n(?:[^\n]*\n)*?\s*version:\s*(v\d[\w.\-]*)/g },
-  { name: "GOLANGCI_LINT_VERSION (workflow env)", pattern: /GOLANGCI_LINT_VERSION:\s*(v?\d[\w.\-]*)/g },
+  { name: "GOLANGCI_LINT_VERSION (workflow env)", pattern: /GOLANGCI_LINT_VERSION:\s*["']?(v?\d[\w.\-]*)/g },
   // A reusable workflow takes the version as an input, under a name the repository chose.
   { name: "reusable workflow input", pattern: /^\s*["']?(?:golangci[-_]?lint[-_]?version|lint[-_]?version|golangciLintVersion|lintVersion)["']?:\s*["']?(v?\d+\.\d+(?:\.\d+)?)/gm },
 ];
@@ -73,6 +73,8 @@ export function detectLintPins(dir) {
       reusable.push({ workflow: match[1], ref: match[2], source: `.github/workflows/${name}` });
     }
   }
+  // One shared workflow is called by several jobs, and the owner's casing varies between them.
+  reusable.splice(0, reusable.length, ...new Map(reusable.map((entry) => [`${entry.workflow}@${entry.ref}`.toLowerCase(), entry])).values());
 
   for (const { file, pattern } of OTHER_SOURCES) {
     const text = readIf(path.join(dir, file));
