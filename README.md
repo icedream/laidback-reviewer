@@ -140,15 +140,23 @@ npm run smoke:strata         # the fixture flow with your real model and agent
 ```
 
 `npm test` builds a synthetic Go repository (`tests/fixtures/repo.mjs`) with a medium change and
-planted defects, serves its real diff through a fake GitHub API (`tests/fakes/github-api.mjs`), and
-drives the pipeline with a scripted OpenAI-compatible model (`tests/fakes/model.mjs`). The scripted
-model stands in for turn shape, not for review quality: it proves the anchors, the policy mapping,
-the banner, the gate and the tool policy behave, and it fails the test on any GitHub call outside the
+planted defects, serves its real diff through a fake GitHub API (`tests/fakes/github-api.mjs`), serves
+the ticket the PR follows through a fake Jira over MCP stdio (`tests/fakes/jira-mcp.mjs`), and drives
+the pipeline with a scripted OpenAI-compatible model (`tests/fakes/model.mjs`). The scripted model
+stands in for turn shape, not for review quality: it proves the anchors, the policy mapping, the
+banner, the gate and the tool policy behave, and it fails the test on any GitHub call outside the
 allowlist. It also attempts `git push` from inside the session so the guard's refusal is asserted
-rather than assumed.
+rather than assumed, and `mcp__atlassian__addComment` so the Jira read-only rule is asserted the same
+way.
+
+`tests/integration/ticket-coverage.test.mjs` covers what a diff cannot show: the ticket has five
+acceptance criteria, the branch implements four, and nothing in the diff points at the fifth. The
+review that comes out names it.
 
 `npm run smoke:strata` runs the same fixture with the real `pr-review` agent and skills against your
 model and prints the composed review. Structural checks only; the review itself is for you to read.
+It reads the fake ticket by default (`--jira fake`); `--jira real` uses the host agent dir's `mcp.json`
+and its OAuth cache instead.
 
 Two model calls can collide: the loop and your interactive Pi session share one local inference
 server, which holds one prompt at a time. The loop runs one review at a time and backs off on a busy
