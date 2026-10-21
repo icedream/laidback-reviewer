@@ -13,6 +13,8 @@ import { rephraseBanner } from "./agent/rephrase.mjs";
 import { REVIEW_TOOLS, createReviewSession } from "./agent/runtime.mjs";
 import { createProposalCollector, createReviewTools } from "./agent/tools.mjs";
 import { configureGitAuth, configureGoModules, prepareComparisonDir } from "./checkout.mjs";
+import { pickContext } from "./context/carried-over.mjs";
+import { resolveStack } from "./context/stack.mjs";
 import { HeadMovedError, submitReview } from "./github/poster.mjs";
 import { createGate, renderGateSummary } from "./gate/gate.mjs";
 import { writeArtifact } from "./proposal/artifact.mjs";
@@ -21,6 +23,8 @@ import { composeReview } from "./proposal/policy.mjs";
 export function toPrView(json, { owner, repo }) {
   return {
     number: json.number,
+    owner,
+    repo,
     repository: `${owner}/${repo}`,
     title: json.title,
     body: json.body ?? "",
@@ -83,6 +87,15 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   });
 
   const contract = nonInteractiveContract({ cfg, checkoutDir, prRef: pr.repository });
+
+  // Context is resolved before the session is built, because the choice decides which session file
+  // the agent starts from. The stack walk answers "which PR is this stacked on", which is the one
+  // place the shared code was read first.
+  const repoInfo = await client.getRepo(owner, repo);
+  const stack = await resolveStack({ client, owner, repo, pr, defaultBranch: repoInfo.default_branch, log });
+  const context = pickContext({ cfg, store, pr, stack, files });
+  log(context.matched ? `context: ${context.mode} from #${context.review.pr} (${context.kind})` : `context: none (${context.reason})`);
+
   const prompt = buildTaskPrompt({
     pr,
     files,
@@ -90,13 +103,15 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     headSha,
     prior: { reviews, comments },
     compareDir,
-    // Context pickup (prior sessions for this PR or stack) lands in phase 6.
-    context: null,
+    context: context.matched ? { description: context.description, instructions: context.instructions } : null,
   });
 
-  const sessionManager = cfg.context.sessionDir
-    ? SessionManager.create(checkoutDir, cfg.context.sessionDir)
-    : SessionManager.inMemory(checkoutDir);
+  const sessionManager =
+    context.matched && context.mode === "fork" && cfg.context.sessionDir
+      ? SessionManager.forkFrom(context.review.session_file, checkoutDir, cfg.context.sessionDir)
+      : cfg.context.sessionDir
+        ? SessionManager.create(checkoutDir, cfg.context.sessionDir)
+        : SessionManager.inMemory(checkoutDir);
 
   const { session } = await createReviewSession({
     cfg,
@@ -155,6 +170,12 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     posted: null,
   });
   store.setArtifact({ id: reviewId, path: artifactPath });
+  store.setSession({
+    id: reviewId,
+    sessionFile: session.sessionManager?.getSessionFile() ?? null,
+    branch: pr.head.ref,
+    stackKey: stack.key,
+  });
   store.markSeen({ owner, repo, pr: prNumber, head_sha: headSha });
 
   const gateState = await gate.open({

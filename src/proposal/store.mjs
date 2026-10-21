@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS reviews (
   github_review_id TEXT,
   html_url TEXT,
   artifact_path TEXT,
+  session_file TEXT,
+  branch TEXT,
+  stack_key TEXT,
   notes TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -74,11 +77,20 @@ export function openStore(path) {
   const db = new Database(path);
   db.pragma("journal_mode = WAL");
   db.exec(SCHEMA);
-  // A column added after the first release: exec() above is a no-op on an existing database.
-  try {
-    db.exec("ALTER TABLE gates ADD COLUMN slack_ts TEXT");
-  } catch {
-    // the column is already there
+  // Columns added after the first release: exec() above is a no-op on an existing database.
+  for (const column of ["slack_ts TEXT"]) {
+    try {
+      db.exec(`ALTER TABLE gates ADD COLUMN ${column}`);
+    } catch {
+      // present already
+    }
+  }
+  for (const column of ["session_file TEXT", "branch TEXT", "stack_key TEXT"]) {
+    try {
+      db.exec(`ALTER TABLE reviews ADD COLUMN ${column}`);
+    } catch {
+      // present already
+    }
   }
   return createStore(db);
 }
@@ -100,7 +112,21 @@ export function createStore(db) {
        WHERE id = @id`,
     ),
     setArtifact: db.prepare(`UPDATE reviews SET artifact_path = @path, updated_at = @now WHERE id = @id`),
+    setSession: db.prepare(`UPDATE reviews SET session_file = @session_file, branch = @branch, stack_key = @stack_key, updated_at = @now WHERE id = @id`),
+    recentReviews: db.prepare(
+      `SELECT * FROM reviews
+       WHERE created_at >= @since
+         AND (@owner IS NULL OR (owner = @owner AND repo = @repo))
+       ORDER BY created_at DESC LIMIT 50`,
+    ),
     findSeen: db.prepare(`SELECT * FROM seen WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha`),
+    updateReview: db.prepare(
+      `UPDATE reviews
+       SET verdict = @verdict, action = @action, event = @event, body = @body, proposed_body = @proposed_body,
+           blocking = @blocking, dry_run = @dry_run, notes = @notes, updated_at = @now
+       WHERE id = @id`,
+    ),
+    deleteComments: db.prepare(`DELETE FROM comments WHERE review_id = @review_id`),
     markSeen: db.prepare(
       `INSERT OR REPLACE INTO seen (owner, repo, pr, head_sha, checked_at) VALUES (@owner, @repo, @pr, @head_sha, @now)`,
     ),
@@ -134,8 +160,12 @@ export function createStore(db) {
 
     /** Persist one composed review plus its comments. Returns the review row id. */
     saveReview({ owner, repo, pr, head_sha, composed, dryRun, notes = [] }) {
-      const id = randomUUID();
-      statements.insertReview.run({
+      // A row is identified by (pr, head_sha): a second attempt at the same head replaces the first,
+      // and a moved head gets its own row.
+      const existing = statements.reviewFor.get({ owner, repo, pr, head_sha });
+      const id = existing?.id ?? randomUUID();
+      if (existing) statements.deleteComments.run({ review_id: id });
+      const fields = {
         id,
         owner,
         repo,
@@ -151,7 +181,9 @@ export function createStore(db) {
         dry_run: dryRun ? 1 : 0,
         notes: JSON.stringify(notes),
         now: now(),
-      });
+      };
+      if (existing) statements.updateReview.run(fields);
+      else statements.insertReview.run(fields);
       for (const comment of composed.payload.comments) {
         statements.insertComment.run({
           review_id: id,
@@ -174,6 +206,12 @@ export function createStore(db) {
     setArtifact({ id, path }) {
       statements.setArtifact.run({ id, path, now: now() });
     },
+    setSession({ id, sessionFile, branch, stackKey }) {
+      statements.setSession.run({ id, session_file: sessionFile ?? null, branch: branch ?? null, stack_key: stackKey ?? null, now: now() });
+    },
+    /** Reviews inside the context window, newest first. Omit owner/repo for every repository. */
+    recentReviews: ({ owner = null, repo = null, sinceIso }) =>
+      statements.recentReviews.all({ owner, repo, since: sinceIso }),
 
     openGate({ kind, review_id = null, summary }) {
       const id = randomUUID().slice(0, 8);

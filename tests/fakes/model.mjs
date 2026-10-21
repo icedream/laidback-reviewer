@@ -119,6 +119,10 @@ export function createScriptedModel({ turns, model = "scripted-review" }) {
     },
     requests: () => requests,
     turnsAsked: () => turn,
+    /** A second run over the same script needs the counter back at the start. */
+    resetTurns: () => {
+      turn = 0;
+    },
     close() {
       server.close();
       server.closeAllConnections?.();

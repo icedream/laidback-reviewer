@@ -173,16 +173,19 @@ src/agent/               agent file loading, prompt, tools, guard, session wirin
 src/github/              REST client, diff anchoring, poster
 src/proposal/            policy mapping, store, run record, re-posting approved reviews
 src/gate/                gate interface, Slack transport
+src/context/             stack walk, which earlier look to carry over, fork vs digest
 src/cli/                 review-once, gate, post-approved
-tests/                   fixture repository, fake GitHub, scripted model, integration flow
+tests/                   fixture repository, fake GitHub, fake Jira over MCP, scripted model, integration flow
 ```
 
 ## Status
 
 Implemented: discovery and assignment policies, the review session with proposal tools and tool
 policy, anchoring, verdict policy, banner with optional rephrasing, gate (Slack and CLI), posting,
-per-run records, container setup, the fixture integration test and the live smoke run.
+per-run records, context pickup over persisted sessions (stack walk, fork or digest), container
+setup, the fixture integration tests and the live smoke run.
 
-Not yet: context reuse across sessions, the startup probe that asserts the token really is
-contents-read-only, the Atlassian credential strategy inside the container (mount an authenticated
-`mcp-auth.json`, or mint a bearer token), and a Telegram gate adapter.
+Not yet: the startup probe that asserts the token really is contents-read-only, the Atlassian
+credential strategy inside the container (mount an authenticated `mcp-auth.json`, or mint a bearer
+token), a Telegram gate adapter, one live Slack gate run, and a live run that shows a forked session
+making the second review better rather than just cheaper.

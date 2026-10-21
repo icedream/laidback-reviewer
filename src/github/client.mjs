@@ -76,6 +76,9 @@ export function createGithubClient({ baseUrl = "https://api.github.com", token, 
     },
     listReviews: (owner, repo, pr) => request("GET", `${repoPath(owner, repo)}/pulls/${pr}/reviews?per_page=100`),
     listInlineComments: (owner, repo, pr) => request("GET", `${repoPath(owner, repo)}/pulls/${pr}/comments?per_page=100`),
+    /** Open and closed PRs whose head branch is `branch`; how a stack link is found. */
+    listPullsForHead: (owner, repo, branch) =>
+      request("GET", `${repoPath(owner, repo)}/pulls?head=${encodeURIComponent(`${owner}:${branch}`)}&state=all&per_page=5`),
     listTimeline: (owner, repo, pr) => request("GET", `${repoPath(owner, repo)}/issues/${pr}/timeline?per_page=100`),
     /**
      * Search cannot OR qualifiers, so the org/repo allowlist is applied client-side by

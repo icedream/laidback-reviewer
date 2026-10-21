@@ -70,7 +70,7 @@ export function baseConfig({ dir }) {
  * Bring up one review run. `overrides` is a partial config tree, so each test reads as a policy
  * difference rather than a new environment.
  */
-export async function setupReviewRun({ overrides = {}, scriptOptions = {}, turns = null, env = {}, jira = false } = {}) {
+export async function setupReviewRun({ overrides = {}, scriptOptions = {}, turns = null, env = {}, jira = false, context = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "laidback-test-"));
   fs.mkdirSync(path.join(dir, "scratch"), { recursive: true });
   let jiraCallsPath = null;
@@ -117,6 +117,11 @@ export async function setupReviewRun({ overrides = {}, scriptOptions = {}, turns
 
   const configPath = path.join(dir, "config.yaml");
   const tree = merge(baseConfig({ dir }), overrides);
+
+  if (context) {
+    // Sessions are persisted under the temp dir so a second run in the same env can pick them up.
+    tree.context = { ...tree.context, enabled: true, sessionDir: path.join(dir, "sessions"), ...context };
+  }
 
   if (jira) {
     // A fake Atlassian server on stdio. The call path is the real one: MCP extension, tool_call
@@ -174,6 +179,7 @@ export async function setupReviewRun({ overrides = {}, scriptOptions = {}, turns
     dir,
     cfg,
     fixture,
+    sessionsDir: tree.context.sessionDir,
     github,
     model,
     store,

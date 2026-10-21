@@ -59,6 +59,11 @@ export function createFakeGithubApi({ fixture, me = "octocat", token = "test-tok
       handle: () => pr,
     },
     {
+      // How a stack link is found: the PR whose head is this PR's base branch.
+      match: (method, p) => method === "GET" && p === `${apiBase}/pulls`,
+      handle: (query = {}) => (fixture.stackPulls ?? []).filter((pull) => `${fixture.owner}:${pull.head.ref}` === query.head),
+    },
+    {
       match: (method, p) => method === "GET" && p.startsWith(`${apiBase}/pulls/${fixture.pr}/files`),
       handle: () => fixture.files,
     },
@@ -127,7 +132,7 @@ export function createFakeGithubApi({ fixture, me = "octocat", token = "test-tok
         return;
       }
       res.writeHead(200, OK);
-      res.end(JSON.stringify(route.handle()));
+      res.end(JSON.stringify(route.handle(entry.query)));
     });
   });
 
@@ -143,6 +148,10 @@ export function createFakeGithubApi({ fixture, me = "octocat", token = "test-tok
     violations: () => calls.filter((call) => call.violation),
     writes: () => calls.filter((call) => call.method !== "GET"),
     postedReviews: () => postedReviews,
+    /** Move the PR's head, which is how a re-review after a push is set up. */
+    setHead: (sha) => {
+      pr.head.sha = sha;
+    },
     pr: () => pr,
     close() {
       server.close();
