@@ -24,7 +24,7 @@ test("github.repos admits exact names and globs within one segment", () => {
   assert.equal(matchRepository("example/orders-svc", { repos: ["example/other"] }).allowed, false);
   assert.equal(matchRepository("example/orders-svc", { repos: ["example/*"] }).allowed, true);
   assert.equal(matchRepository("example/orders-worker", { repos: ["example/orders-*"] }).allowed, true);
-  assert.equal(matchRepository("example/orders-svc", { repos: ["example/orders-*"] }).allowed, false);
+  assert.equal(matchRepository("example/orders-svc", { repos: ["example/payments-*"] }).allowed, false);
   assert.equal(matchRepository("example/orders-svc", { repos: ["example/orders-sv?"] }).allowed, true);
   // `*` covers one segment, so it stands for any owner here but never for a deeper path.
   assert.equal(matchRepository("other/orders-svc", { repos: ["*/orders-svc"] }).allowed, true);
