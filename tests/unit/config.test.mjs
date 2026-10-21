@@ -82,6 +82,40 @@ test("the review agent name can come from the environment", () => {
   assert.equal(cfg.agent.name, "review-standard");
 });
 
+test("LAIDBACK_WORK_DIR moves every writable path together", () => {
+  const tree = baseConfig({ dir: "/tmp" });
+  delete tree.checkout.root;
+  delete tree.checkout.scratch;
+  delete tree.checkout.compareDir;
+  delete tree.checkout.gitConfig;
+  delete tree.toolchain.installDir;
+  const cfg = loadConfig({ path: writeConfig(tree), env: { LAIDBACK_WORK_DIR: "/work" } });
+
+  assert.equal(cfg.checkout.root, "/work/repos");
+  assert.equal(cfg.checkout.scratch, "/work/scratch");
+  assert.equal(cfg.checkout.compareDir, "/work/scratch/refs");
+  assert.equal(cfg.checkout.gitConfig, "/work/gitconfig");
+  assert.equal(cfg.toolchain.installDir, "/work/tools");
+});
+
+test("an explicit path in the file still wins over the work dir", () => {
+  const tree = baseConfig({ dir: "/tmp" });
+  tree.checkout.root = "/elsewhere/repos";
+  const cfg = loadConfig({ path: writeConfig(tree), env: { LAIDBACK_WORK_DIR: "/work" } });
+
+  assert.equal(cfg.checkout.root, "/elsewhere/repos");
+});
+
+test("a module proxy comes from the file, or the environment when the file is silent", () => {
+  const tree = baseConfig({ dir: "/tmp" });
+  tree.checkout.goProxy = "https://athens.internal:3000";
+  const fromFile = loadConfig({ path: writeConfig(tree), env: { LAIDBACK_GOPROXY: "https://ignored" } });
+  assert.equal(fromFile.checkout.goProxy, "https://athens.internal:3000");
+
+  const fromEnv = loadConfig({ path: writeConfig(baseConfig({ dir: "/tmp" })), env: { LAIDBACK_GOPROXY: "https://athens.internal:3000" } });
+  assert.equal(fromEnv.checkout.goProxy, "https://athens.internal:3000");
+});
+
 test("an empty skillsDir takes the container mount from the environment", () => {
   const tree = baseConfig({ dir: "/tmp" });
   tree.agent.skillsDir = "";

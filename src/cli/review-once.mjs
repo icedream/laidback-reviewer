@@ -16,6 +16,7 @@ import { matchRepository } from "../github/scope.mjs";
 import { slackGateFromConfig } from "../gate/slack.mjs";
 import { openStore } from "../proposal/store.mjs";
 import { runReview } from "../review-run.mjs";
+import { prepareCheckout, releaseWorktree } from "../checkout.mjs";
 
 function parseArgs(argv) {
   const out = { post: false, dryRun: false };
@@ -53,7 +54,7 @@ async function main() {
     process.exit(2);
   }
 
-  const checkoutDir = path.resolve(args.dir ?? path.join(cfg.checkout.root, owner, repo));
+  const requestedDir = args.dir ? path.resolve(args.dir) : "";
   const scope = matchRepository(`${owner}/${repo}`, cfg.github);
   if (!scope.allowed) {
     console.log(`note: ${owner}/${repo} is outside the configured scope (${scope.reason}); a run you asked for by number proceeds anyway`);
@@ -64,14 +65,23 @@ async function main() {
     token: secret(cfg, cfg.github.tokenEnv, { required: true }),
   });
 
+  // `--dir` is used as given. Without it the run builds the same cached clone and detached worktree the
+  // poll loop uses; pointing the session at a path that does not exist yet leaves the agent with the PR
+  // body, no tree, no gates and no grep.
+  let checkout = null;
+  if (!requestedDir) {
+    const pull = await client.getPull(owner, repo, pr);
+    checkout = prepareCheckout({ cfg, owner, repo, pr, headRef: pull.head?.ref, headSha: pull.head?.sha, log: console.error });
+  }
+
   const result = await runReview({
     cfg,
     store,
     client,
     slack: slackGateFromConfig({ cfg, store, log: (line) => console.error(line) }),
-    task: { owner, repo, pr, checkoutDir },
+    task: { owner, repo, pr, checkoutDir: requestedDir || checkout.dir },
     piAgentDir: process.env.PI_CODING_AGENT_DIR ?? ".pi/agent",
-    artifactDir: args.artifacts ?? "data/reviews",
+    artifactDir: args.artifacts ?? process.env.LAIDBACK_ARTIFACT_DIR ?? "data/reviews",
   });
 
   console.log(
@@ -94,6 +104,7 @@ async function main() {
     ),
   );
   store.close();
+  if (checkout) releaseWorktree({ ...checkout, cfg, log: console.error });
 }
 
 // Imported by tests for the flag handling; only a direct run performs a review.

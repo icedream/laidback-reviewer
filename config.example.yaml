@@ -57,8 +57,13 @@ checkout:
   mode: clone                       # clone | existing (tests point at a prepared tree)
   root: work/repos
   scratch: work/scratch
+  compareDir: work/scratch/refs     # base/head refs, so a gate can compare against main
+  gitConfig: .pi/gitconfig          # global git config the run exports as GIT_CONFIG_GLOBAL
   existingDir: ""
   goPrivate: ["github.com/example-corp/*"]
+  goProxy: ""                       # e.g. https://athens.internal:3000, also needed in tools.allowHosts
+  goSumDb: ""                       # "off" when a mirror does not serve checksums
+  goFlags: ""
 
 toolchain:
   golangciLint: auto                # auto = install what the repo pins | off = image version | v2.3.1 = that tag
@@ -75,6 +80,8 @@ tools:
     - raw.githubusercontent.com
     - release-assets.githubusercontent.com   # release downloads redirect here, and every hop is checked
     - mcp.atlassian.com
+    - proxy.golang.org              # go build and go test fetch modules
+    - sum.golang.org
 
 gate:
   channel: cli                      # slack | cli | none

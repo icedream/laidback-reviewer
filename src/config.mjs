@@ -102,6 +102,11 @@ export const CONFIG_SCHEMA = record({
     gitConfig: string({ def: ".pi/gitconfig" }),
     existingDir: string({ def: "" }),
     goPrivate: list(string(), { def: [] }),
+    // A private module proxy (Athens or similar) keeps a container off the public proxies; the host has
+    // to appear in tools.allowHosts as well or the guard stops the fetch.
+    goProxy: string({ def: "" }),
+    goSumDb: string({ def: "" }),
+    goFlags: string({ def: "" }),
   }),
   tools: record({
     bash: bool({ def: true }),
@@ -125,6 +130,8 @@ export const CONFIG_SCHEMA = record({
       tokenEnv: string({ def: "SLACK_MCP_XOXC_TOKEN" }),
       cookieEnv: string({ def: "SLACK_MCP_XOXD_TOKEN" }),
       webhookUrlEnv: string({ def: "LAIDBACK_SLACK_WEBHOOK" }),
+      // One thread reply per inline comment, so the decider reads the finding rather than a line number.
+      maxCommentReplies: integer({ def: 25, min: 0 }),
       // Emoji on the gate message itself. The bot seeds these on its own post when a different
       // identity will click them. Names must exist in Slack's own set: Slack has no `pause_button`.
       reactions: record({
@@ -223,6 +230,23 @@ function applyEnvDefaults(raw, env) {
   // An empty skillsDir means "whatever the agent dir declares"; in the container that is the mounted
   // skills checkout, so the mount path belongs in the environment.
   if (!out.agent.skillsDir && env.LAIDBACK_SKILLS_DIR) out.agent.skillsDir = env.LAIDBACK_SKILLS_DIR;
+  // The container binds its writable area at /work, while a host run uses a directory next to the
+  // config. One variable moves all four paths together, so a relative path in the file cannot resolve
+  // onto a read-only rootfs.
+  if (env.LAIDBACK_WORK_DIR) {
+    const work = env.LAIDBACK_WORK_DIR;
+    const checkout = { ...(raw?.checkout ?? {}) };
+    const toolchain = { ...(raw?.toolchain ?? {}) };
+    out.checkout = {
+      ...checkout,
+      root: checkout.root ?? `${work}/repos`,
+      scratch: checkout.scratch ?? `${work}/scratch`,
+      compareDir: checkout.compareDir ?? `${work}/scratch/refs`,
+      gitConfig: checkout.gitConfig ?? `${work}/gitconfig`,
+    };
+    out.toolchain = { ...toolchain, installDir: toolchain.installDir ?? `${work}/tools` };
+  }
+  if (env.LAIDBACK_GOPROXY && !out.checkout?.goProxy) out.checkout = { ...(out.checkout ?? {}), goProxy: env.LAIDBACK_GOPROXY };
   return out;
 }
 

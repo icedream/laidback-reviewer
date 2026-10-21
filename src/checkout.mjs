@@ -10,12 +10,16 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-function credentialHelper(tokenEnv) {
-  return `-c credential.helper=!f(){ echo username=x-access-token; echo password=$${tokenEnv}; };f`;
+// Two argv entries: git reads `-c` and its value separately, and the value names the environment
+// variable rather than holding the token.
+export function credentialHelperArgs(tokenEnv) {
+  return ["-c", `credential.helper=!f(){ echo username=x-access-token; echo password=$${tokenEnv}; };f`];
 }
 
+const credentialHelperValue = (tokenEnv) => credentialHelperArgs(tokenEnv)[1].replace(/^credential\.helper=/, "");
+
 function git(args, { cwd, tokenEnv } = {}) {
-  const prefixed = tokenEnv ? [credentialHelper(tokenEnv), ...args] : args;
+  const prefixed = tokenEnv ? [...credentialHelperArgs(tokenEnv), ...args] : args;
   return execFileSync("git", prefixed, { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }).trim();
 }
 
@@ -51,6 +55,8 @@ export function prepareCheckout({ cfg, owner, repo, pr, headRef, headSha, log = 
   } else {
     git(["fetch", "--prune", "origin", headRef], { cwd: cached, tokenEnv });
   }
+  // Now that the clone exists, the repository-local settings apply to anything run from inside it.
+  applyLocalGitAuth(cached, gitAuthHelper(cfg));
 
   const dir = worktreeDir(cfg, owner, repo, pr, headSha);
   if (fs.existsSync(dir)) {
@@ -87,9 +93,9 @@ export function prepareComparisonDir({ cfg, log = () => {} }) {
  * the helper has to be recorded in a config file. What is recorded reads the environment variable.
  */
 export function configureGitAuth({ cfg, dir, log = () => {} }) {
-  const helper = credentialHelper(cfg.github.tokenEnv).replace(/^-c /, "");
-  git(["config", "--local", "credential.helper", helper], { cwd: dir });
-  git(["config", "--local", "url.https://github.com/.insteadOf", "git@github.com:"], { cwd: dir });
+  const helper = credentialHelperValue(cfg.github.tokenEnv);
+  // The global file is what covers commands the run does not spawn itself: `go mod download`, a bare
+  // `git clone`, or a tool the repository's own Makefile calls.
   process.env.GIT_CONFIG_GLOBAL = path.resolve(cfg.checkout.gitConfig || ".pi/gitconfig");
   fs.mkdirSync(path.dirname(process.env.GIT_CONFIG_GLOBAL), { recursive: true });
   if (!fs.existsSync(process.env.GIT_CONFIG_GLOBAL)) {
@@ -98,12 +104,33 @@ export function configureGitAuth({ cfg, dir, log = () => {} }) {
       `[credential]\n\thelper = ${helper}\n[url "https://github.com/"]\n\tinsteadOf = git@github.com:\n`,
     );
   }
+  // A clone-mode run configures auth before cloning, so the checkout directory may not be a repository
+  // yet; setting local config there fails, and the global file already carries the same settings.
+  applyLocalGitAuth(dir, helper);
   log(`git auth: credential helper reads $${cfg.github.tokenEnv}, global config ${process.env.GIT_CONFIG_GLOBAL}`);
 }
 
-/** GOPRIVATE so `go test` can fetch private module dependencies without a checksum proxy. */
-export function configureGoModules({ cfg, dir, log = () => {} }) {
-  if (!cfg.checkout.goPrivate.length) return;
-  process.env.GOPRIVATE = cfg.checkout.goPrivate.join(",");
-  log(`GOPRIVATE=${process.env.GOPRIVATE}`);
+const gitAuthHelper = (cfg) => credentialHelperValue(cfg.github.tokenEnv);
+
+function applyLocalGitAuth(dir, helper) {
+  if (!dir || !fs.existsSync(path.join(dir, ".git"))) return false;
+  git(["config", "--local", "credential.helper", helper], { cwd: dir });
+  git(["config", "--local", "url.https://github.com/.insteadOf", "git@github.com:"], { cwd: dir });
+  return true;
+}
+
+/**
+ * The Go environment the agent's gates run in. GOPRIVATE keeps private modules off the public checksum
+ * proxy, and goProxy points a build at a mirror such as an Athens instance.
+ */
+export function configureGoModules({ cfg, log = () => {} }) {
+  const set = (name, value) => {
+    if (!value) return;
+    process.env[name] = value;
+    log(`${name}=${value}`);
+  };
+  set("GOPRIVATE", cfg.checkout.goPrivate.join(","));
+  set("GOPROXY", cfg.checkout.goProxy);
+  set("GOSUMDB", cfg.checkout.goSumDb);
+  set("GOFLAGS", cfg.checkout.goFlags);
 }
