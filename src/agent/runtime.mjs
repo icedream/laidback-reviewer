@@ -54,6 +54,9 @@ export async function createReviewSession({ cfg, agentDir, cwd, agentDef, contra
     .join("\n\n");
 
   const settingsManager = SettingsManager.create(cwd, agentDir, { projectTrusted: true });
+  // Built-in extensions resolve the agent directory from PI_CODING_AGENT_DIR at call time, so an MCP
+  // server declared in this session's agent dir is invisible unless the variable matches it.
+  process.env.PI_CODING_AGENT_DIR = path.resolve(agentDir);
   // An SDK session does not load MCP on its own; the servers in the agent dir's mcp.json need this
   // factory. Their read-only enforcement lives in the guard, whatever the credential allows.
   const factories = cfg.tools.mcp.length ? [...extensionFactories, createMcpExtension({})] : [...extensionFactories];
