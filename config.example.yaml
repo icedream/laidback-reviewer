@@ -1,0 +1,85 @@
+# laidback-reviewer configuration. Secrets are environment variables, never values here.
+# Unknown keys are rejected at startup.
+
+github:
+  me: octocat                       # the username assignments are matched against
+  tokenEnv: LAYOUTBACK_GH_TOKEN     # fine-grained PAT: Pull requests RW, Contents RO, Metadata RO
+  orgs: [example-corp]
+  repos: []                         # empty = every repo in the orgs list
+  pollIntervalMs: 120000
+  searchAgeHours: 24
+
+assignment:
+  policy: any                       # any | human_actor | exclude_codeowners
+  includeReviewRequests: false      # team review requests are never matched; user requests only when true
+  skipDraft: true
+
+reviews:
+  rereviewOnPush: false             # review again when the head moves after the first review
+  maxPerCycle: 2
+  maxComments: 25
+  dryRun: true                      # nothing reaches GitHub; the payload is printed and stored
+  approve: hint                     # submit | hint | drop
+  requestChanges: hint              # submit | hint | drop
+  hintWording:
+    approve: "Verdict: I would have approved this."
+    requestChanges: "Verdict: I would have requested changes."
+
+banner:
+  prefix: ""
+  suffix: "<sub>This review was performed by a local AI bot.</sub>"
+  rephrase: false                   # rewrite the banner for flow; the review body never goes to that call
+
+agent:
+  name: pr-review
+  agentDir: .pi/agent/agents        # agents/<name>.md supplies the system prompt
+  skillsDir: ""                     # read-only skills mount; empty = whatever the agent dir declares
+  systemPromptAddendum: ""          # appended after the built-in non-interactive contract
+  model:
+    provider: local/strata
+    id: qwen3.8-flash-next-iq3_s
+    thinking: xhigh
+    maxConcurrency: 1               # one local inference server, one prompt at a time
+    lockFile: ""                    # e.g. /data/inference.lock
+    busyBackoffMs: 30000
+
+context:
+  enabled: true
+  maxAgeDays: 30
+  minScore: 35                      # percent, text-overlap fallback only
+  allowCrossRepo: false
+  sessionDir: ""                    # empty = the agent dir's sessions
+  mode: auto                        # auto | fork | digest
+  maxForkTokens: 48000
+
+checkout:
+  mode: clone                       # clone | existing (tests point at a prepared tree)
+  root: work/repos
+  scratch: work/scratch
+  existingDir: ""
+  goPrivate: ["github.com/example-corp/*"]
+
+tools:
+  bash: true                        # tests, lint, read-only gh subcommands
+  mcp: [atlassian]                  # read-only enforced regardless of what the credential allows
+  allowHosts:
+    - github.com
+    - api.github.com
+    - raw.githubusercontent.com
+    - mcp.atlassian.com
+
+gate:
+  channel: cli                      # slack | cli | none
+  beforeReview: false               # hold the task until approved, so no tokens are spent first
+  beforePost: true                  # queue the composed review for approval before it is sent
+  timeoutHours: 24
+  onTimeout: hold                   # hold = never post
+  maxPending: 5
+  slack:
+    transport: userToken            # userToken | botToken | webhook (webhook cannot read a decision)
+    channelEnv: LAYOUTBACK_SLACK_CHANNEL
+    channelName: laidback-reviewer-gate
+    allowUsersEnv: LAYOUTBACK_SLACK_USERS
+    tokenEnv: SLACK_MCP_XOXC_TOKEN
+    cookieEnv: SLACK_MCP_XOXD_TOKEN
+    webhookUrlEnv: LAYOUTBACK_SLACK_WEBHOOK

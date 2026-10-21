@@ -1,0 +1,8 @@
+node_modules/
+data/
+work/
+.env
+.pi/agent/auth.json
+.pi/agent/models.json
+.git
+tests/
