@@ -18,7 +18,10 @@ const WORKFLOW_SOURCES = [
   // golangci-lint-action with an explicit version input.
   { name: "golangci-lint-action", pattern: /uses:\s*[^\s]*golangci-lint-action[^\n]*\n(?:[^\n]*\n)*?\s*version:\s*(v\d[\w.\-]*)/g },
   { name: "GOLANGCI_LINT_VERSION (workflow env)", pattern: /GOLANGCI_LINT_VERSION:\s*(v?\d[\w.\-]*)/g },
+  // A reusable workflow takes the version as an input, under a name the repository chose.
+  { name: "reusable workflow input", pattern: /^\s*["']?(?:golangci[-_]?lint[-_]?version|lint[-_]?version|golangciLintVersion|lintVersion)["']?:\s*["']?(v?\d+\.\d+(?:\.\d+)?)/gm },
 ];
+const REUSABLE_CALL = /uses:\s*([^\s]+\/\.github\/workflows\/[\w.\-]+\.ya?ml)@(\S+)/g;
 const OTHER_SOURCES = [
   { file: "Makefile", pattern: /GOLANGCI_LINT_VERSION\s*\??=\s*(v?\d[\w.\-]*)/g },
   { file: ".tool-versions", pattern: /^golangci-lint\s+(v?\d[\w.\-]*)/gm },
@@ -49,6 +52,7 @@ export function detectConfigSchemaMajor(dir) {
  */
 export function detectLintPins(dir) {
   const pins = [];
+  const reusable = [];
   const workflowDir = path.join(dir, ".github", "workflows");
   let workflowFiles = [];
   try {
@@ -64,6 +68,9 @@ export function detectLintPins(dir) {
         const version = match[1].startsWith("v") ? match[1] : `v${match[1]}`;
         pins.push({ version, source: `.github/workflows/${name}: ${label}` });
       }
+    }
+    for (const match of text.matchAll(REUSABLE_CALL)) {
+      reusable.push({ workflow: match[1], ref: match[2], source: `.github/workflows/${name}` });
     }
   }
 
@@ -83,10 +90,16 @@ export function detectLintPins(dir) {
   // gate looks like a code problem when it is a tooling problem.
   const incompatible = configSchema ? versions.filter((version) => majorOf(version) !== configSchema.major) : [];
 
-  return { pins, chosen, configSchema, conflict: versions.length > 1 || incompatible.length > 0, incompatible };
+  return { pins, chosen, configSchema, reusable, conflict: versions.length > 1 || incompatible.length > 0, incompatible };
 }
 
 const majorOf = (version) => String(version).replace(/^v/, "").split(".")[0];
+
+function reusableNote(reusable) {
+  if (!reusable.length) return "no repository pin found, so the image's golangci-lint is used";
+  const calls = reusable.map((entry) => `${entry.workflow}@${entry.ref}`).join(", ");
+  return `no version input in this repository's workflows; they call ${calls}, where the default may live`;
+}
 
 /**
  * What the harness should provide.
@@ -220,12 +233,13 @@ export async function resolveLintTool({ cfg, dir, execImpl, log = () => {} }) {
     configSchema: plan.detected?.configSchema ?? null,
     pins: plan.detected?.pins ?? [],
     conflict: Boolean(plan.detected?.conflict),
+    reusable: plan.detected?.reusable ?? [],
     installedPath: null,
     note: "",
   };
 
   if (plan.mode !== "install") {
-    if (plan.mode === "image") summary.note = "no repository pin found, so the image's golangci-lint is used";
+    if (plan.mode === "image") summary.note = reusableNote(summary.reusable);
     return summary;
   }
 

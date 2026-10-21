@@ -12,7 +12,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { detectConfigSchemaMajor, detectLintPins, ensureGolangciLint, planLint, releaseUrl } from "../../src/tools/golangci-lint.mjs";
+import { detectConfigSchemaMajor, detectLintPins, ensureGolangciLint, planLint, releaseUrl, resolveLintTool } from "../../src/tools/golangci-lint.mjs";
 
 function tree(files) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "laidback-lint-"));
@@ -73,7 +73,7 @@ test("version managers and a bare Makefile are read too", () => {
     assert.equal(detectLintPins(viaManager).chosen.version, "v2.11.4");
     assert.equal(detectLintPins(viaMise).chosen.version, "v2.13.0");
     assert.equal(detectLintPins(viaMake).chosen.version, "v2.12.1");
-    assert.deepEqual(detectLintPins(nothing), { pins: [], chosen: null, configSchema: null, conflict: false, incompatible: [] });
+    assert.deepEqual(detectLintPins(nothing), { pins: [], chosen: null, configSchema: null, reusable: [], conflict: false, incompatible: [] });
   } finally {
     for (const dir of [viaManager, viaMise, viaMake, nothing]) fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -220,6 +220,38 @@ test("a missing release names the URL it could not fetch", async () => {
     assert.equal(fs.existsSync(path.join(dir, "tools", "golangci-lint", "v2.15.0")), false, "a failed install leaves no half directory");
   } finally {
     server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a shared workflow names the version as an input", () => {
+  const dir = tree({
+    ".github/workflows/ci.yml":
+      "jobs:\n  lint:\n    uses: example-corp/workflows/.github/workflows/go.yml@v3\n    with:\n      golangci-lint-version: v2.11.0\n",
+  });
+  try {
+    const found = detectLintPins(dir);
+
+    assert.equal(found.chosen.version, "v2.11.0");
+    assert.match(found.chosen.source, /reusable workflow input/);
+    assert.deepEqual(found.reusable, [
+      { workflow: "example-corp/workflows/.github/workflows/go.yml", ref: "v3", source: ".github/workflows/ci.yml" },
+    ]);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a shared workflow with no input says where the default may live", async () => {
+  const dir = tree({
+    ".github/workflows/ci.yml": "jobs:\n  lint:\n    uses: example-corp/workflows/.github/workflows/go.yml@v3\n",
+  });
+  try {
+    const resolved = await resolveLintTool({ cfg: cfgFor(dir), dir, log: () => {} });
+
+    assert.equal(resolved.mode, "image");
+    assert.match(resolved.note, /example-corp\/workflows\/\.github\/workflows\/go\.yml@v3/);
+  } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
