@@ -24,7 +24,9 @@ function parseFrontmatter(text) {
 export function loadAgentDef(agentDir, name) {
   const file = path.resolve(agentDir, `${name}.md`);
   if (!fs.existsSync(file)) {
-    throw new Error(`review agent not found: ${file} (agent.name / agent.agentDir in config.yaml)`);
+    throw new Error(
+      `review agent not found: ${file}\n  point agent.agentDir (or LAIDBACK_AGENT_DIR) at the directory holding your review agent, and agent.name (or LAIDBACK_AGENT_NAME) at its file name; ~ is expanded`,
+    );
   }
   const { frontmatter, body } = parseFrontmatter(fs.readFileSync(file, "utf8"));
   const list = (value) => (value ? value.split(",").map((entry) => entry.trim()).filter(Boolean) : []);

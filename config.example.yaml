@@ -32,8 +32,8 @@ banner:
   rephrase: false                   # rewrite the banner for flow; the review body never goes to that call
 
 agent:
-  name: pr-review
-  agentDir: .pi/agent/agents        # agents/<name>.md supplies the system prompt
+  name: pr-review                   # selects <name>.md; or LAIDBACK_AGENT_NAME
+  agentDir: .pi/agent/agents        # or LAIDBACK_AGENT_DIR; ~ is expanded; only README.md is tracked here
   skillsDir: ""                     # read-only skills mount; empty = whatever the agent dir declares
   systemPromptAddendum: ""          # appended after the built-in non-interactive contract
   model:

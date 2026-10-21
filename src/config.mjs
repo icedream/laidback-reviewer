@@ -6,6 +6,7 @@
  */
 
 import fs from "node:fs";
+import nodePath from "node:path";
 import { parse as parseYaml } from "yaml";
 
 const string = (opts = {}) => ({ kind: "string", ...opts });
@@ -215,7 +216,20 @@ function applyEnvDefaults(raw, env) {
   const out = { ...raw, agent: { ...agent, model: { ...model } } };
   if (!out.agent.model.provider && env.LAIDBACK_MODEL_PROVIDER) out.agent.model.provider = env.LAIDBACK_MODEL_PROVIDER;
   if (!out.agent.model.id && env.LAIDBACK_MODEL_ID) out.agent.model.id = env.LAIDBACK_MODEL_ID;
+  // The review agent lives wherever this machine keeps it, so the directory is environment-scoped like
+  // the model, rather than a path written into a published config.
+  if (raw?.agent?.agentDir === undefined && env.LAIDBACK_AGENT_DIR) out.agent.agentDir = env.LAIDBACK_AGENT_DIR;
+  if (raw?.agent?.name === undefined && env.LAIDBACK_AGENT_NAME) out.agent.name = env.LAIDBACK_AGENT_NAME;
   return out;
+}
+
+/** `~` and `~/x` against HOME; anything else is returned untouched. */
+export function expandHome(value, env = {}) {
+  const raw = String(value ?? "");
+  if (raw !== "~" && !raw.startsWith("~/")) return raw;
+  const home = env.HOME || process.env.HOME || "";
+  if (!home) return raw;
+  return raw === "~" ? home : nodePath.join(home, raw.slice(2));
 }
 
 export function loadConfig({ path = process.env.LAIDBACK_CONFIG || "config.yaml", env = process.env } = {}) {
@@ -236,6 +250,8 @@ export function loadConfig({ path = process.env.LAIDBACK_CONFIG || "config.yaml"
     throw new Error(`invalid config (${path}):\n  - ${errors.join("\n  - ")}${hint}`);
   }
   cfg._deprecations = applyTriggerAliases(raw, cfg);
+  cfg.agent.agentDir = expandHome(cfg.agent.agentDir, env);
+  cfg.agent.skillsDir = expandHome(cfg.agent.skillsDir, env);
   cfg._path = path;
   cfg._env = env;
   return cfg;

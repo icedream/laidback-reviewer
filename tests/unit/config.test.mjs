@@ -58,6 +58,40 @@ test("the removed review-request switch is rejected and names its replacement", 
   assert.throws(() => loadConfig({ path: file, env: {} }), /a review request is the trigger now/);
 });
 
+test("the review agent directory can come from the environment", () => {
+  const tree = baseConfig({ dir: "/tmp" });
+  delete tree.agent.agentDir;
+  const cfg = loadConfig({ path: writeConfig(tree), env: { LAIDBACK_AGENT_DIR: "/srv/agents" } });
+
+  assert.equal(cfg.agent.agentDir, "/srv/agents");
+});
+
+test("a configured agent directory still beats the environment", () => {
+  const tree = baseConfig({ dir: "/tmp" });
+  tree.agent.agentDir = "/pinned/agents";
+  const cfg = loadConfig({ path: writeConfig(tree), env: { LAIDBACK_AGENT_DIR: "/srv/agents" } });
+
+  assert.equal(cfg.agent.agentDir, "/pinned/agents");
+});
+
+test("the review agent name can come from the environment", () => {
+  const tree = baseConfig({ dir: "/tmp" });
+  delete tree.agent.name;
+  const cfg = loadConfig({ path: writeConfig(tree), env: { LAIDBACK_AGENT_NAME: "review-standard" } });
+
+  assert.equal(cfg.agent.name, "review-standard");
+});
+
+test("~ is expanded in the agent paths", () => {
+  const tree = baseConfig({ dir: "/tmp" });
+  tree.agent.agentDir = "~/.pi/agent/agents";
+  tree.agent.skillsDir = "~/skills";
+  const cfg = loadConfig({ path: writeConfig(tree), env: { HOME: "/home/tester" } });
+
+  assert.equal(cfg.agent.agentDir, "/home/tester/.pi/agent/agents");
+  assert.equal(cfg.agent.skillsDir, "/home/tester/skills");
+});
+
 test("an unknown key is an error, because a dropped key could be a permission", () => {
   const tree = { ...baseConfig({ dir: "/tmp" }), extra: { dangerous: true } };
   const file = writeConfig(tree);
