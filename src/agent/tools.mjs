@@ -58,6 +58,21 @@ export function createReviewTools({ collector, limits = {} }) {
       suggestion: Type.Optional(Type.String({ description: "Replacement lines for a suggested edit, without the suggestion fence" })),
     }),
     async execute(_id, params) {
+      // The same finding queued twice reaches GitHub twice and reads as padding, so the second one is
+      // refused where it happens rather than filtered on the way out.
+      const duplicate = collector.comments.find(
+        (queued) =>
+          queued.path === params.path &&
+          queued.line === params.line &&
+          (queued.start_line ?? null) === (params.start_line ?? null) &&
+          String(queued.body).trim() === String(params.body).trim(),
+      );
+      if (duplicate) {
+        return textResult(`already queued: ${params.path}:${params.start_line ?? params.line} carries this finding. Add a different one or fold it into the body.`, {
+          queued: false,
+          duplicate: true,
+        });
+      }
       if (collector.comments.length >= maxComments) {
         return textResult(
           `not queued: this review already has ${collector.comments.length} comments, the cap is ${maxComments}. Fold this into the body or an existing comment.`,
