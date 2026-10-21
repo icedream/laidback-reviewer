@@ -12,7 +12,7 @@
     "review:once": "node src/cli/review-once.mjs",
     "gate": "node src/cli/gate.mjs",
     "fixture:build": "node tests/fixtures/repo.mjs --out",
-    "test": "node --test tests/unit/ tests/integration/",
+    "test": "node --test --test-force-exit tests/unit/ tests/integration/",
     "smoke:strata": "node tests/integration/live-smoke.mjs"
   },
   "dependencies": {

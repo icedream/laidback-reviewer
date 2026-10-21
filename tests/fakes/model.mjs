@@ -121,6 +121,7 @@ export function createScriptedModel({ turns, model = "scripted-review" }) {
     turnsAsked: () => turn,
     close() {
       server.close();
+      server.closeAllConnections?.();
     },
   };
 }

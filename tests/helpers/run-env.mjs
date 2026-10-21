@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { stringify } from "yaml";
 import { loadConfig } from "../../src/config.mjs";
 import { openStore } from "../../src/proposal/store.mjs";
@@ -69,15 +70,17 @@ export function baseConfig({ dir }) {
  * Bring up one review run. `overrides` is a partial config tree, so each test reads as a policy
  * difference rather than a new environment.
  */
-export async function setupReviewRun({ overrides = {}, scriptOptions = {}, env = {} } = {}) {
+export async function setupReviewRun({ overrides = {}, scriptOptions = {}, turns = null, env = {}, jira = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "laidback-test-"));
   fs.mkdirSync(path.join(dir, "scratch"), { recursive: true });
+  let jiraCallsPath = null;
 
   const fixture = buildFixtureRepo({ dir: path.join(dir, "repos", "orders-svc") });
   const github = createFakeGithubApi({ fixture, me: "octocat", token: "test-token" });
   const { baseUrl: githubBaseUrl } = await github.start();
 
-  const model = createScriptedModel({ turns: reviewScript({ fixture, scratchDir: fixture.dir, ...scriptOptions }) });
+  const script = typeof turns === "function" ? turns(fixture, fixture.dir) : turns;
+  const model = createScriptedModel({ turns: script ?? reviewScript({ fixture, scratchDir: fixture.dir, ...scriptOptions }) });
   const { baseUrl: modelBaseUrl } = await model.start();
 
   const agentDir = path.join(dir, "agent");
@@ -113,7 +116,35 @@ export async function setupReviewRun({ overrides = {}, scriptOptions = {}, env =
   );
 
   const configPath = path.join(dir, "config.yaml");
-  fs.writeFileSync(configPath, stringify(merge(baseConfig({ dir }), overrides)));
+  const tree = merge(baseConfig({ dir }), overrides);
+
+  if (jira) {
+    // A fake Atlassian server on stdio. The call path is the real one: MCP extension, tool_call
+    // hooks, then a separate process. It also advertises a write tool so the read-only rule in the
+    // guard is asserted rather than trusted.
+    jiraCallsPath = path.join(dir, "jira-calls.jsonl");
+    fs.writeFileSync(
+      path.join(agentDir, "mcp.json"),
+      JSON.stringify(
+        {
+          mcpServers: {
+            atlassian: {
+              transport: "stdio",
+              command: process.execPath,
+              args: [fileURLToPath(new URL("../fakes/jira-mcp.mjs", import.meta.url))],
+              env: { JIRA_FAKE_LOG: jiraCallsPath },
+              exposure: "direct",
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    tree.tools = { ...tree.tools, mcp: ["atlassian"] };
+  }
+
+  fs.writeFileSync(configPath, stringify(tree));
   const cfg = loadConfig({ path: configPath, env: { LAIDBACK_TEST_TOKEN: "test-token", ...env } });
 
   const store = openStore(path.join(dir, "state.db"));
@@ -139,5 +170,22 @@ export async function setupReviewRun({ overrides = {}, scriptOptions = {}, env =
     fs.rmSync(dir, { recursive: true, force: true });
   };
 
-  return { dir, cfg, fixture, github, model, store, client, run, close, log: () => logLines.join("\n") };
+  return {
+    dir,
+    cfg,
+    fixture,
+    github,
+    model,
+    store,
+    client,
+    run,
+    jiraCalls: () => (jiraCallsPath && fs.existsSync(jiraCallsPath) ? fs.readFileSync(jiraCallsPath, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line)) : []),
+    close: () => {
+      store.close();
+      github.close();
+      model.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    },
+    log: () => logLines.join("\n"),
+  };
 }

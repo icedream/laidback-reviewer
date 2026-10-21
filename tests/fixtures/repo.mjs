@@ -12,19 +12,20 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { FIXTURE_TICKET, TICKET_KEY } from "./ticket.mjs";
 
 export const FIXTURE = {
   owner: "example",
   repo: "orders-svc",
   pr: 143,
-  ticket: "ORD-142",
+  ticketKey: TICKET_KEY,
   baseRef: "main",
-  headRef: "ORD-142/orders-pagination-service",
+  headRef: `${TICKET_KEY}/orders-pagination-service`,
   title: "refactor: move order listing behind a service client",
   commitSubject: "refactor: list orders through a service client",
   commitBody: `${(
     "Split the orders handler into api/pagination plus service.Client.\n" +
-    "Ticket: ORD-142\n" +
+    `Ticket: ${TICKET_KEY}\n` +
     "\n" +
     "The handler kept growing query parsing, downstream calls and JSON decoding in one\n" +
     "function, so the pagination rules could not be tested on their own. This moves the\n" +
@@ -37,15 +38,8 @@ Order listing grows a filter set, so the downstream call moves behind \`service.
 query rules move to \`internal/api/pagination.go\`. That makes the pagination rules testable without
 an HTTP server.
 
-Closes ORD-142.`,
-  ticketSummary: "Order listing: filters, pagination and a service client",
-  ticketDescription: `As an operator I need the order list endpoint to page and filter so large tenants do not time out.
-
-Acceptance criteria:
-1. page and per_page are parsed and validated; an invalid page returns 400 with an error message.
-2. per_page is capped at 100 and defaults to 20.
-3. the downstream call carries the request context so a slow upstream cannot pin a handler.
-4. upstream JSON failures are surfaced, not swallowed.`,
+Closes ${TICKET_KEY}.`,
+  ticket: FIXTURE_TICKET,
   planted: [
     {
       id: "swallowed-unmarshal",
@@ -71,6 +65,11 @@ Acceptance criteria:
       id: "missing-400-test",
       path: "internal/api/orders_test.go",
       expectation: "ticket criterion 1 has no test; a body-level finding, not an inline one",
+    },
+    {
+      id: "unimplemented-customer-filter",
+      path: null,
+      expectation: "criterion 5 (filter by customer id, with a test) is absent from the branch; only a ticket read reveals it",
     },
     {
       id: "formatting-churn",

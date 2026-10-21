@@ -47,6 +47,36 @@ if (fs.existsSync(path.join(hostAgentDir, "agents"))) {
   fs.cpSync(path.join(hostAgentDir, "agents"), path.join(agentDir, "agents"), { recursive: true, dereference: true });
 }
 
+// Ticket access for the smoke run. "fake" (default) serves the fixture ticket over stdio, so the run
+// shows the requirement checklist and the unimplemented criterion without touching a real tracker.
+// "real" copies the host agent dir's mcp.json and its OAuth cache instead.
+const jiraMode = arg("jira", "fake");
+if (jiraMode === "fake") {
+  fs.writeFileSync(
+    path.join(agentDir, "mcp.json"),
+    JSON.stringify(
+      {
+        mcpServers: {
+          atlassian: {
+            transport: "stdio",
+            command: process.execPath,
+            args: [new URL("../fakes/jira-mcp.mjs", import.meta.url).pathname],
+            env: { JIRA_FAKE_LOG: path.join(dir, "jira-calls.jsonl") },
+            exposure: "direct",
+          },
+        },
+      },
+      null,
+      2,
+    ),
+  );
+} else if (fs.existsSync(path.join(hostAgentDir, "mcp.json"))) {
+  fs.copyFileSync(path.join(hostAgentDir, "mcp.json"), path.join(agentDir, "mcp.json"));
+  if (fs.existsSync(path.join(hostAgentDir, "mcp-auth.json"))) {
+    fs.copyFileSync(path.join(hostAgentDir, "mcp-auth.json"), path.join(agentDir, "mcp-auth.json"));
+  }
+}
+
 const fixture = buildFixtureRepo({ dir: path.join(dir, "repos", "orders-svc") });
 const github = createFakeGithubApi({ fixture, me: "octocat", token: "smoke-token" });
 const { baseUrl: githubBaseUrl } = await github.start();
@@ -57,7 +87,7 @@ tree.github.tokenEnv = "LAIDBACK_SMOKE_TOKEN";
 tree.agent = { ...tree.agent, name: agentName, agentDir: path.join(agentDir, "agents"), skillsDir: arg("skills-dir", path.join(os.homedir(), ".agents", "skills")), model: { provider, id: modelId, thinking, maxConcurrency: 1, busyBackoffMs: 0 } };
 tree.reviews = { ...tree.reviews, dryRun: true };
 tree.gate = { ...tree.gate, channel: "none", beforePost: false };
-tree.tools = { ...tree.tools, allowHosts: ["127.0.0.1", "github.com", "api.github.com"] };
+tree.tools = { ...tree.tools, mcp: jiraMode === "fake" ? ["atlassian"] : [], allowHosts: ["127.0.0.1", "github.com", "api.github.com"] };
 tree.checkout = { ...tree.checkout, mode: "existing", existingDir: fixture.dir };
 const configPath = path.join(dir, "config.yaml");
 fs.writeFileSync(configPath, stringify(tree));
@@ -69,6 +99,7 @@ const client = createGithubClient({ baseUrl: githubBaseUrl, token: "smoke-token"
 console.log(`model ${provider}/${modelId} (thinking ${thinking}), agent ${agentName}`);
 console.log(`fixture ${fixture.dir}, head ${fixture.head.sha.slice(0, 8)}, ${fixture.files.length} files`);
 console.log(`planted issues: ${fixture.planted.map((item) => item.id).join(", ")}`);
+console.log(`ticket access: ${jiraMode}`);
 
 const started = Date.now();
 let result;
