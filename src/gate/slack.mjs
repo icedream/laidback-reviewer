@@ -22,9 +22,11 @@ export function parseDecision(text, { gateIds, allowUsers = [], user }) {
 
 export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
   const slack = cfg.gate.slack;
+  // Overridable for a proxy or a test double; the shape of the API is the same.
+  const apiBase = (slack.apiBaseUrl || SLACK_API).replace(/\/$/, "");
 
   async function call(method, payload = {}) {
-    const response = await fetch(`${SLACK_API}/${method}`, {
+    const response = await fetch(`${apiBase}/${method}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json; charset=utf-8",
@@ -46,14 +48,14 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
     if (authed.ok) {
       // A self DM exists once you have messaged yourself in the client; opening one with a user
       // token is refused, so this reads the existing channel instead of creating it.
-      const list = await fetch(`${SLACK_API}/conversations.list?types=im&limit=200`, {
+      const list = await fetch(`${apiBase}/conversations.list?types=im&limit=200`, {
         headers: { Authorization: `Bearer ${token}`, ...(cookie ? { Cookie: `d=${cookie}` } : {}) },
       }).then((response) => response.json());
       const self = (list.channels ?? []).find((channel) => channel.user === authed.user_id);
       if (self) return self.id;
     }
 
-    const channels = await fetch(`${SLACK_API}/conversations.list?types=private_channel,public_channel&limit=500`, {
+    const channels = await fetch(`${apiBase}/conversations.list?types=private_channel,public_channel&limit=500`, {
       headers: { Authorization: `Bearer ${token}`, ...(cookie ? { Cookie: `d=${cookie}` } : {}) },
     }).then((response) => response.json());
     const named = (channels.channels ?? []).find((channel) => channel.name === slack.channelName);
@@ -64,7 +66,28 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
     return "";
   }
 
+  const webhookUrl = () => (cfg._env ?? process.env)[slack.webhookUrlEnv] ?? "";
+
   async function post(gateId, summary) {
+    if (slack.transport === "webhook") {
+      // An incoming webhook can only talk, never listen: it cannot read a decision back, so the
+      // decision is taken with src/cli/gate.mjs against the same queue.
+      const url = webhookUrl();
+      if (!url) {
+        log(`transport=webhook but ${slack.webhookUrlEnv} is unset; gate ${gateId} stays queued`);
+        return false;
+      }
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({
+          text: `laidback-reviewer gate ${gateId}.\n\n${summary}\n\nDecide with: node src/cli/gate.mjs ${gateId} approve`,
+        }),
+      });
+      if (!response.ok) log(`slack webhook post failed: ${response.status}`);
+      return response.ok;
+    }
+
     const channel = await resolveChannel();
     if (!channel) {
       log(`no slack channel for the gate: set ${slack.channelEnv} or create #${slack.channelName}`);
@@ -78,6 +101,7 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
 
   /** Read the thread of each pending gate and apply any decision in it. */
   async function readDecisions() {
+    if (slack.transport === "webhook") return [];
     const pending = store.pendingGates().filter((gate) => gate.kind.endsWith(":slack") && gate.slack_ts);
     if (!pending.length) return [];
     const channel = await resolveChannel();
@@ -87,7 +111,7 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
     const applied = [];
 
     for (const gate of pending) {
-      const thread = await fetch(`${SLACK_API}/conversations.replies?${new URLSearchParams({ channel, ts: gate.slack_ts, limit: "200" })}`, {
+      const thread = await fetch(`${apiBase}/conversations.replies?${new URLSearchParams({ channel, ts: gate.slack_ts, limit: "200" })}`, {
         headers: { Authorization: `Bearer ${token}`, ...(cookie ? { Cookie: `d=${cookie}` } : {}) },
       }).then((response) => response.json());
 

@@ -31,6 +31,14 @@ export function createGate({ cfg, store, log = () => {}, slack = null }) {
 
       if (kind === "none") return { state: "approved", gateId };
 
+      // A backlog arrives as one message, not five: reviews over the ceiling still queue in the
+      // database and are decided from there.
+      const pending = store.pendingGates();
+      if (pending.length > cfg.gate.maxPending) {
+        log(`gate queue holds ${pending.length} of ${cfg.gate.maxPending}; gate ${gateId} is queued without a new presentation`);
+        return { state: "queued", gateId, queueFull: true };
+      }
+
       if (kind === "cli") {
         log(`gate ${gateId} (${stage}) is queued; decide with: node src/cli/gate.mjs ${gateId} approve`);
         log(summary);

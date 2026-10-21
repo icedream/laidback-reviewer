@@ -118,6 +118,8 @@ export const CONFIG_SCHEMA = record({
       tokenEnv: string({ def: "SLACK_MCP_XOXC_TOKEN" }),
       cookieEnv: string({ def: "SLACK_MCP_XOXD_TOKEN" }),
       webhookUrlEnv: string({ def: "LAIDBACK_SLACK_WEBHOOK" }),
+      // Change only for a proxy or a test double.
+      apiBaseUrl: string({ def: "https://slack.com/api" }),
     }),
   }),
 });

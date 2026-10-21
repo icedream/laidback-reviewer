@@ -164,6 +164,51 @@ A linter that will not start is a tooling gap, not a defect in the branch: the t
 the expected outcome is a gate recorded as `not_run` with the reason. When the pins disagree, the
 disagreement is named in the prompt and in the run record.
 
+## Slack as the approval gate
+
+```yaml
+gate:
+  channel: slack
+  beforePost: true      # the composed review waits here for your approval
+reviews:
+  dryRun: false         # with dryRun nothing is sent, so no gate opens and Slack stays quiet
+```
+
+Then four variables, in `.env` (compose loads it through `env_file`):
+
+| variable | what goes in it |
+| --- | --- |
+| `SLACK_MCP_XOXC_TOKEN` | `xoxc-...` user token, or `xoxb-...` with `transport: botToken` |
+| `SLACK_MCP_XOXD_TOKEN` | the matching `xoxd-...` value; required for `xoxc`, harmless otherwise |
+| `LAIDBACK_SLACK_USERS` | your Slack user id, comma separated. Empty means anyone in the channel can approve |
+| `LAIDBACK_SLACK_CHANNEL` | channel or IM id to pin. Unset, the bot looks for your self DM, then a private channel named `gate.slack.channelName` |
+
+Getting the user token pair: sign in to Slack in a browser, open DevTools, pick any request to
+`api.slack.com` in the Network tab, and copy the `xoxc-...` from its `Authorization` header plus the
+`d=` cookie value. Both die with the browser session, so expect to refresh them.
+
+A bot token instead: create a Slack app with `chat:write`, `conversations:read`, `im:read`,
+`users:read`, and `channels:history`/`groups:history` for the channel it reads replies from, invite the
+bot to that channel, and put `xoxb-...` in `SLACK_MCP_XOXC_TOKEN`. A bot can open a real DM; a user
+token cannot open your own self DM, which is why the pinned channel id exists.
+
+Decide in the thread of the gate message: `approve <id>`, `reject <id> <reason>`, or `hold <id>`. Only
+allowlisted users count, the id is the eight characters shown in the message, and an unanswered gate
+expires after `gate.timeoutHours`, with `onTimeout: hold` meaning it is never posted. Once you approve,
+the next poll cycle posts the review, re-anchored against the current head.
+
+Verify all of it without a pull request:
+
+```bash
+npm run gate:check          # auth, channel discovery, a posted message, then waits for your reply
+npm run gate:check -- --timeout 60
+```
+
+It writes to a throwaway state file, so approving its message has no effect on real reviews. With
+`transport: webhook` the message goes out but nothing can be read back, and the decision is taken with
+`npm run gate <id> approve`. More than `gate.maxPending` gates waiting stops presenting new messages and
+keeps queueing the reviews in the database.
+
 ## Tests
 
 ```bash
