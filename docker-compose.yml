@@ -1,0 +1,55 @@
+services:
+  reviewer:
+    build: .
+    container_name: laidback-reviewer
+    user: ${UID:-1000}:${GID:-1000}
+    restart: unless-stopped
+    env_file:
+      - .env
+    # Nothing from the host environment leaks in beyond .env. The git credential helper reads
+    # LAIDBACK_GH_TOKEN at call time, so the token is never written into a config file.
+    environment:
+      - UID
+      - GID
+      - LAIDBACK_CONFIG=/app/config.yaml
+      - LAIDBACK_STATE_DB=/data/state.db
+      - LAIDBACK_ARTIFACT_DIR=/data/reviews
+      - PI_CODING_AGENT_DIR=/app/.pi/agent
+    working_dir: /app
+    command: ["node", "src/index.mjs"]
+    volumes:
+      # Configuration and the Pi agent dir the bot owns: models.json for the model provider, agents/
+      # for the review agent, skills it may read. Not the host's ~/.pi/agent.
+      - type: bind
+        source: ${PWD}/config.yaml
+        target: /app/config.yaml
+        read_only: true
+      - type: bind
+        source: ${PWD}/.pi/agent
+        target: /app/.pi/agent
+      # Review standard, mounted read-only: the org skills the agent cites.
+      - type: bind
+        source: ${HOME}/.agents/skills
+        target: /skills
+        read_only: true
+      # State, sessions, review records, Go and linter caches.
+      - type: bind
+        source: ${PWD}/data
+        target: /data
+      # Cached clones and per-review scratch worktrees.
+      - type: bind
+        source: ${PWD}/work
+        target: /work
+    # The model runs on the LAN (127.0.0.1:11182 by default). The bridge network reaches it; if
+    # your routing or VPN setup does not, host networking is the fallback.
+    # network_mode: host
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/node/.cache
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - "laidback-reviewer.capabilities=pr:read+write,contents:read,test:run,deploy:none"

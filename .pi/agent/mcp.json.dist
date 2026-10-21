@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "atlassian": {
+      "url": "https://mcp.atlassian.com/v2/mcp",
+      "auth": "oauth",
+      "oauth": {
+        "scope": "read:me read:account offline_access read:jira:agent-interface search:jira:agent-interface read:confluence:agent-interface search:confluence:agent-interface"
+      },
+      "exposure": "direct",
+      "idleTimeout": 60
+    }
+  }
+}

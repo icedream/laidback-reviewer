@@ -1,0 +1,12 @@
+{
+  "defaultThinkingLevel": "xhigh",
+  "compaction": {
+    "reserveTokens": 32768,
+    "keepRecentTokens": 20000
+  },
+  "enableInstallTelemetry": false,
+  "memory": {
+    "perTurnInjection": false
+  },
+  "packages": []
+}
