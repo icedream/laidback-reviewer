@@ -87,8 +87,14 @@ gate:
 
 With `channel: slack` the bot posts the queued summary (verdict mapping, body with banner, every
 comment with its path and range) to the channel or DM in `LAIDBACK_SLACK_CHANNEL`, and reads your
-reply in that thread: `approve <id>`, `reject <id> <reason>`, `hold <id>`. A user token cannot open a
-DM to itself, so the target falls back to the private channel named by `gate.slack.channelName`.
+decision from a reaction on that message (`:white_check_mark:` approve, `:x:` reject,
+`:hourglass_flowing_sand:` hold, configurable in `gate.slack.reactions`) or from a reply in the thread:
+`approve <id>`, `reject <id> <reason>`, `hold <id>`. With a bot identity the three emoji are seeded on
+the gate message so deciding is one click; with a user token they are not, because the poster and the
+decider are the same person and the click would clear the chip instead of setting it
+(`gate.slack.seedReactions: auto | always | never`). A reaction from anyone off the allowlist is
+ignored. A user token cannot open a DM to itself, so the target falls back to the private channel named
+by `gate.slack.channelName`.
 `channel: cli` prints the same summary and is decided with `node src/cli/gate.mjs`.
 
 Every run writes a record under `data/reviews/`: gate runs, the policy mapping, and every comment
@@ -225,7 +231,8 @@ A bot token instead: create a Slack app with `chat:write`, `conversations:read`,
 bot to that channel, and put `xoxb-...` in `SLACK_MCP_XOXC_TOKEN`. A bot can open a real DM; a user
 token cannot open your own self DM, which is why the pinned channel id exists.
 
-Decide in the thread of the gate message: `approve <id>`, `reject <id> <reason>`, or `hold <id>`. Only
+Decide by reacting on the gate message (`:white_check_mark:`, `:x:`, `:hourglass_flowing_sand:`), or in
+its thread: `approve <id>`, `reject <id> <reason>`, or `hold <id>`. Only
 allowlisted users count, the id is the eight characters shown in the message, and an unanswered gate
 expires after `gate.timeoutHours`, with `onTimeout: hold` meaning it is never posted. Once you approve,
 the next poll cycle posts the review, re-anchored against the current head.

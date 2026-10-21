@@ -21,7 +21,7 @@ test("defaults fill in the safe values", () => {
   assert.equal(cfg.reviews.approve, "hint");
   assert.equal(cfg.reviews.requestChanges, "hint");
   assert.equal(cfg.gate.beforePost, true);
-  assert.equal(cfg.gate.onTimeout, "hold");
+  assert.equal(cfg.gate.slack.seedReactions, "auto", "do not seed a chip the decider would clear");
   assert.equal(cfg.trigger.mode, "review_requested", "an individual review request is the trigger");
   assert.equal(cfg.trigger.policy, "any");
   assert.equal(cfg.trigger.skipDraft, true);

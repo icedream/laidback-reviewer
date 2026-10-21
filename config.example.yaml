@@ -92,4 +92,9 @@ gate:
     tokenEnv: SLACK_MCP_XOXC_TOKEN
     cookieEnv: SLACK_MCP_XOXD_TOKEN
     webhookUrlEnv: LAIDBACK_SLACK_WEBHOOK
+    reactions:                          # seeded when a different identity will click; Slack names only
+      approve: [white_check_mark]
+      reject: [x]
+      hold: [hourglass_flowing_sand]
+    seedReactions: auto                 # auto | always | never (auto skips when the poster may decide)
     apiBaseUrl: https://slack.com/api   # change only for a proxy or a test double

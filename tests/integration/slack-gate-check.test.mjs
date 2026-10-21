@@ -31,9 +31,10 @@ function tempEnv(slackOverrides = {}) {
   return { dir, config: file, db: path.join(dir, "gate-check.db") };
 }
 
-/** Answers only the four calls the gate makes, and replies to its own posts. */
-function fakeSlack({ approver = "U_ME" } = {}) {
+/** Answers the calls the gate makes, and can answer with a reaction instead of a reply. */
+function fakeSlack({ approver = "U_ME", textReply = true, react = null } = {}) {
   const posts = [];
+  const reactions = [];
   const seen = [];
   const server = http.createServer(async (req, res) => {
     const chunks = [];
@@ -53,13 +54,19 @@ function fakeSlack({ approver = "U_ME" } = {}) {
       posts.push({ ...body, ts });
       return json({ ok: true, ts, channel: body.channel });
     }
+    if (url.startsWith("/reactions.add")) {
+      reactions.push(body);
+      return json({ ok: true });
+    }
     if (url.startsWith("/conversations.replies")) {
       const params = new URL(url, "http://localhost").searchParams;
       const post = posts.find((entry) => entry.ts === params.get("ts"));
       seen.push(params.get("ts"));
-      const messages = [{ text: post?.text ?? "", user: "U_BOT", ts: post?.ts }];
+      const root = { text: post?.text ?? "", user: "U_BOT", ts: post?.ts };
+      if (react) root.reactions = [{ name: react.name, count: 1, users: [react.user] }];
+      const messages = [root];
       const requested = post ? /approve (\S+)/.exec(post.text)?.[1] : null;
-      if (requested) messages.push({ text: `approve ${requested}`, user: approver, ts: "1700000000.000200" });
+      if (requested && textReply) messages.push({ text: `approve ${requested}`, user: approver, ts: "1700000000.000200" });
       return json({ ok: true, messages });
     }
     return json({ ok: false, error: "unknown_method" });
@@ -67,6 +74,7 @@ function fakeSlack({ approver = "U_ME" } = {}) {
 
   return {
     posts,
+    reactions,
     seen,
     start: () => new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(`http://127.0.0.1:${server.address().port}`))),
     close: () => {
@@ -130,6 +138,74 @@ test("post, read the thread, and apply the approval", async () => {
     } finally {
       store.close();
     }
+  } finally {
+    slack.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a reaction on the gate message decides it, with no text reply", async () => {
+  const slack = fakeSlack({ textReply: false, react: { name: "white_check_mark", user: "U_ME" } });
+  const apiBaseUrl = await slack.start();
+  const { dir, config, db } = tempEnv({ apiBaseUrl });
+  try {
+    const run = await runCheck({ config, db, allowUsers: "U_ME" });
+
+    assert.equal(run.status, 0, run.stdout + run.stderr);
+    assert.match(run.stdout, /decision read: approved by U_ME/);
+    assert.match(slack.posts[0].text, /React :white_check_mark: approve, :x: reject, :hourglass_flowing_sand: hold/);
+    assert.deepEqual(slack.reactions, [], "the poster is U_ME, so seeding would make the click remove it");
+    assert.match(run.stdout, /not seeding its own reactions/);
+  } finally {
+    slack.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the reactions are seeded when the deciders are not the posting user", async () => {
+  const slack = fakeSlack({ textReply: false, react: { name: "white_check_mark", user: "U_OTHER" } });
+  const apiBaseUrl = await slack.start();
+  const { dir, config, db } = tempEnv({ apiBaseUrl });
+  try {
+    const run = await runCheck({ config, db, allowUsers: "U_OTHER" });
+
+    assert.match(run.stdout, /decision read: approved by U_OTHER/);
+    assert.deepEqual(
+      slack.reactions.map((entry) => entry.name),
+      ["white_check_mark", "x", "hourglass_flowing_sand"],
+      "a second hand can click a chip that is already there",
+    );
+  } finally {
+    slack.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a reject reaction records a rejection and its reason", async () => {
+  const slack = fakeSlack({ textReply: false, react: { name: "x", user: "U_ME" } });
+  const apiBaseUrl = await slack.start();
+  const { dir, config, db } = tempEnv({ apiBaseUrl });
+  try {
+    const run = await runCheck({ config, db, allowUsers: "U_ME" });
+
+    assert.match(run.stdout, /decision read: rejected by U_ME \(reacted x\)/);
+    assert.equal(run.status, 2, "only an approval exits 0");
+  } finally {
+    slack.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a reaction from someone off the allowlist is ignored", async () => {
+  const slack = fakeSlack({ textReply: false, react: { name: "white_check_mark", user: "U_STRANGER" } });
+  const apiBaseUrl = await slack.start();
+  const { dir, config, db } = tempEnv({ apiBaseUrl });
+  try {
+    const run = await runCheck({ config, db, allowUsers: "U_ME", timeout: "1" });
+
+    assert.equal(slack.posts.length, 1);
+    assert.match(run.stdout, /no decision within/);
+    assert.equal(run.status, 2);
   } finally {
     slack.close();
     fs.rmSync(dir, { recursive: true, force: true });

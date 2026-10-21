@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseDecision } from "../../src/gate/slack.mjs";
+import { parseDecision, parseReactions } from "../../src/gate/slack.mjs";
 
 const gateIds = new Set(["ab12cd34"]);
 
@@ -11,6 +11,22 @@ test("approve and reject in the gate thread are read as decisions", () => {
     gateId: "ab12cd34",
     reason: "anchor looks wrong",
   });
+});
+
+test("a reaction on the gate message decides it", () => {
+  const reactions = { approve: ["white_check_mark"], reject: ["x"], hold: ["hourglass_flowing_sand"] };
+  assert.deepEqual(parseReactions({ reactions: [{ name: "x", users: ["U_ME"] }] }, { allowUsers: ["U_ME"], reactions }), {
+    command: "reject",
+    emoji: "x",
+    user: "U_ME",
+  });
+  assert.equal(parseReactions({ reactions: [{ name: "eyes", users: ["U_ME"] }] }, { allowUsers: ["U_ME"], reactions }), null);
+  assert.equal(parseReactions({ reactions: [{ name: "white_check_mark", users: ["U_STRANGER"] }] }, { allowUsers: ["U_ME"], reactions }), null);
+  assert.equal(parseReactions({ reactions: [{ name: "white_check_mark", users: ["U_ANY"] }] }, { reactions }).command, "approve");
+  // approve is checked first, so a mixed payload has one meaning.
+  const mixed = { reactions: [{ name: "x", users: ["U_ME"] }, { name: "white_check_mark", users: ["U_ME"] }] };
+  assert.equal(parseReactions(mixed, { allowUsers: ["U_ME"], reactions }).command, "approve");
+  assert.equal(parseReactions(undefined, { reactions }), null);
 });
 
 test("a message about another gate, or with no gate id, is ignored", () => {

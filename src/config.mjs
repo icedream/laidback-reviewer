@@ -125,6 +125,16 @@ export const CONFIG_SCHEMA = record({
       tokenEnv: string({ def: "SLACK_MCP_XOXC_TOKEN" }),
       cookieEnv: string({ def: "SLACK_MCP_XOXD_TOKEN" }),
       webhookUrlEnv: string({ def: "LAIDBACK_SLACK_WEBHOOK" }),
+      // Emoji on the gate message itself. The bot seeds these on its own post when a different
+      // identity will click them. Names must exist in Slack's own set: Slack has no `pause_button`.
+      reactions: record({
+        approve: list(string(), { def: ["white_check_mark"] }),
+        reject: list(string(), { def: ["x"] }),
+        hold: list(string(), { def: ["hourglass_flowing_sand"] }),
+      }),
+      // auto: skip seeding when the posting identity is also a possible decider, which is the case for
+      // a user token, because clicking would then clear the chip rather than set it.
+      seedReactions: enumerated(["auto", "always", "never"], { def: "auto" }),
       // Change only for a proxy or a test double.
       apiBaseUrl: string({ def: "https://slack.com/api" }),
     }),

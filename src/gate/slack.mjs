@@ -4,8 +4,8 @@
  * Target resolution: a pinned channel or IM id, then an existing self DM, then a private channel by
  * name. A user token (`xoxc`/`xoxd`) can post and read but Slack refuses `conversations.open` for
  * your own DM; a `botToken` gets true DMs, and `webhook` can post but never read, so the decision
- * then comes from src/cli/gate.mjs. Buttons need a request URL the bot does not have, so the decision
- * is text in the thread.
+ * then comes from src/cli/gate.mjs. Interactive buttons need a request URL the bot does not have, so
+ * the decision is an emoji reaction on the gate message, or text in the thread.
  */
 
 const SLACK_API = "https://slack.com/api";
@@ -18,6 +18,25 @@ export function parseDecision(text, { gateIds, allowUsers = [], user }) {
   const [, command, gateId, rest] = match;
   if (!gateIds.has(gateId)) return null;
   return { command: command.toLowerCase(), gateId, reason: rest.trim() || null };
+}
+
+export const STATE_BY_COMMAND = { approve: "approved", reject: "rejected", hold: "held" };
+
+/**
+ * An emoji on the gate message. Only the root message is read, so a reaction to somebody else's
+ * reply is noise, and the allowlist applies exactly as it does to text. Order is approve, reject,
+ * hold: the first one present decides.
+ */
+export function parseReactions(message, { allowUsers = [], reactions = {} } = {}) {
+  for (const command of ["approve", "reject", "hold"]) {
+    const names = reactions[command] ?? [];
+    for (const reaction of message?.reactions ?? []) {
+      if (!names.includes(reaction.name)) continue;
+      const user = (reaction.users ?? []).find((id) => !allowUsers.length || allowUsers.includes(id));
+      if (user) return { command, emoji: reaction.name, user };
+    }
+  }
+  return null;
 }
 
 export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
@@ -40,11 +59,20 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
     return body;
   }
 
+  let self = null;
+  /** Cached identity of the token, so post and read agree on who is deciding. */
+  async function whoAmI() {
+    self ??= await call("auth.test");
+    return self;
+  }
+
+  const allowUsers = () => ((cfg._env ?? process.env)[slack.allowUsersEnv] ?? "").split(",").map((entry) => entry.trim()).filter(Boolean);
+
   async function resolveChannel() {
     const pinned = (cfg._env ?? process.env)[slack.channelEnv];
     if (pinned) return pinned;
 
-    const authed = await call("auth.test");
+    const authed = await whoAmI();
     if (authed.ok) {
       // A self DM exists once you have messaged yourself in the client; opening one with a user
       // token is refused, so this reads the existing channel instead of creating it.
@@ -93,10 +121,25 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
       log(`no slack channel for the gate: set ${slack.channelEnv} or create #${slack.channelName}`);
       return false;
     }
-    const header = `laidback-reviewer gate ${gateId}. Reply in this thread: \`approve ${gateId}\` or \`reject ${gateId} <reason>\`.`;
+    const hint = Object.entries(slack.reactions ?? {})
+      .flatMap(([command, names]) => names.slice(0, 1).map((name) => `:${name}: ${command}`))
+      .join(", ");
+    const header = `laidback-reviewer gate ${gateId}. React ${hint}, or reply \`approve ${gateId}\` / \`reject ${gateId} <reason>\`.`;
     const sent = await call("chat.postMessage", { channel, text: `${header}\n\n${summary}`, unfurl_links: false });
-    if (sent.ok) store.setSlackTs({ id: gateId, ts: sent.ts });
-    return sent.ok;
+    if (!sent.ok) return false;
+    store.setSlackTs({ id: gateId, ts: sent.ts });
+    // Seeding a reaction the decider would click is a trap: with a user token the poster and the
+    // decider are the same identity, so the click would clear the chip instead of setting it.
+    const names = Object.values(slack.reactions ?? {}).flat();
+    const allow = allowUsers();
+    const me = (await whoAmI()).user_id ?? "";
+    const seed = slack.seedReactions === "always" || (slack.seedReactions === "auto" && allow.length > 0 && !allow.includes(me));
+    if (!seed) {
+      log(`gate ${gateId}: not seeding its own reactions; the posting user ${me || "?"} may decide`);
+      return true;
+    }
+    for (const name of names) await call("reactions.add", { channel, name, timestamp: sent.ts });
+    return true;
   }
 
   /** Read the thread of each pending gate and apply any decision in it. */
@@ -107,7 +150,7 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
     const channel = await resolveChannel();
     if (!channel) return [];
 
-    const allowUsers = ((cfg._env ?? process.env)[slack.allowUsersEnv] ?? "").split(",").map((entry) => entry.trim()).filter(Boolean);
+    const allow = allowUsers();
     const applied = [];
 
     for (const gate of pending) {
@@ -117,11 +160,19 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
 
       const gateIds = new Set([gate.id]);
       for (const message of thread.messages ?? []) {
-        const decision = parseDecision(message.text, { gateIds, allowUsers, user: message.user });
+        const decision = parseDecision(message.text, { gateIds, allowUsers: allow, user: message.user });
         if (!decision) continue;
-        const state = decision.command === "approve" ? "approved" : decision.command === "reject" ? "rejected" : "held";
-        applied.push(store.decideGate({ id: decision.gateId, state, decided_by: message.user ?? "slack", reason: decision.reason }));
+        applied.push(store.decideGate({ id: decision.gateId, state: STATE_BY_COMMAND[decision.command], decided_by: message.user ?? "slack", reason: decision.reason }));
         gateIds.delete(decision.gateId);
+      }
+
+      // No text answer: fall back to a reaction on the gate message itself.
+      if (gateIds.has(gate.id)) {
+        const reaction = parseReactions((thread.messages ?? [])[0], { allowUsers: allow, reactions: slack.reactions });
+        if (reaction) {
+          applied.push(store.decideGate({ id: gate.id, state: STATE_BY_COMMAND[reaction.command], decided_by: reaction.user, reason: `reacted ${reaction.emoji}` }));
+          gateIds.delete(gate.id);
+        }
       }
     }
     return applied;

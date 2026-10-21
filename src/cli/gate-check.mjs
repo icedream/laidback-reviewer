@@ -76,7 +76,7 @@ const gateId = store.openGate({
 const body = [
   "If this is readable, presenting works.",
   "",
-  "Reply in this thread with:",
+  "React :white_check_mark: on this message to approve, or reply in the thread with:",
   "",
   `\`approve ${gateId}\``,
   "",
