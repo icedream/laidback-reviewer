@@ -30,15 +30,40 @@ function stripHeredocs(command) {
     .replace(/<<-?\s*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?[^\n]*$/g, "<<removed");
 }
 
-const MANIFEST_FILES = /\b(go\.(mod|sum|work)(\.tmp)?|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|requirements[^\s]*\.txt|Pipfile\.lock|poetry\.lock|Cargo\.lock|composer\.lock)\b/g;
+// Rules that only matter for the tree under review. The same verb inside a scratch copy is how a review
+// checks whether `go mod tidy` would come out clean, which is a question about the PR, not a write to it.
+const WORKSPACE_SCOPED = new Set([
+  "supply-chain and package-manager writes are not permitted",
+  "writing a dependency manifest is not permitted; propose the change instead",
+]);
+
+function cdTargetsBefore(command, position) {
+  return [...command.matchAll(/\bcd\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))/g)]
+    .filter((match) => match.index < position)
+    .map((match) => match[1] ?? match[2] ?? match[3]);
+}
+
+function inScratch(dir, { writableRoots, checkoutDir }) {
+  if (!dir) return false;
+  if (checkoutDir && (dir === checkoutDir || dir.startsWith(`${checkoutDir}/`))) return false;
+  return writableRoots.some((root) => dir === root || dir.startsWith(`${String(root).replace(/\/$/, "")}/`));
+}
+
+const MANIFEST_FILES = /\b(go\.(mod|sum|work)(\.tmp)?|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|requirements[^\s]*\.txt|Pipfile\.lock|poetry\.lock|Cargo\.lock|composer\.lock)\b/;
 
 /**
  * A manifest being written, as opposed to being read: redirects, tee, and a copy or move whose
- * destination is a manifest. Writing a note about manifests under the scratch root is allowed.
+ * destination is a manifest. Inside a scratch root that is a patched copy, which is allowed.
  */
-function manifestWriteDenied(command) {
+function manifestWriteDenied(command, { writableRoots, checkoutDir }) {
   const writes = [...command.matchAll(/(?:>>?|\btee\s+(?:-a\s+)?)\s*([^|;&\s]+)/g), ...command.matchAll(/\b(?:cp|mv|rsync)\b[^|;&]*?\s([^|;&\s]+)\s*$/gm)];
-  return writes.some((match) => MANIFEST_FILES.test(match[1].trim()));
+  return writes.some((match) => {
+    const target = match[1].trim();
+    if (!MANIFEST_FILES.test(target)) return false;
+    const dir = cdTargetsBefore(command, match.index).at(-1) ?? "";
+    const resolved = target.startsWith("/") ? target : dir ? `${dir}/${target}` : target;
+    return !inScratch(resolved, { writableRoots, checkoutDir });
+  });
 }
 
 const READ_DENY = [
@@ -70,7 +95,8 @@ function atlassianToolName(toolName, input) {
   return "";
 }
 
-export function createReviewGuard({ allowHosts = [], bashEnabled = true, writableRoots = [], log = [] } = {}) {
+export function createReviewGuard({ allowHosts = [], bashEnabled = true, writableRoots = [], checkoutDir = "", log = [] } = {}) {
+  const scratchOpts = { writableRoots, checkoutDir };
   const block = (record) => {
     log.push(record);
     return { block: true, reason: record.reason };
@@ -87,9 +113,12 @@ export function createReviewGuard({ allowHosts = [], bashEnabled = true, writabl
         // `go mod tidy` must not read as running it.
         const runnable = stripHeredocs(command);
         for (const rule of BASH_DENY) {
-          if (rule.re.test(runnable)) return block({ tool: "bash", command, reason: rule.reason });
+          const match = rule.re.exec(runnable);
+          if (!match) continue;
+          if (WORKSPACE_SCOPED.has(rule.reason) && inScratch(cdTargetsBefore(runnable, match.index).at(-1) ?? "", scratchOpts)) continue;
+          return block({ tool: "bash", command, reason: rule.reason });
         }
-        if (manifestWriteDenied(runnable)) {
+        if (manifestWriteDenied(runnable, scratchOpts)) {
           return block({ tool: "bash", command, reason: "writing a dependency manifest is not permitted; propose the change instead" });
         }
         if (/\b(curl|wget)\b/.test(command)) {

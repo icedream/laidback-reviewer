@@ -5,7 +5,7 @@
 
 import { commentableLines } from "../github/anchoring.mjs";
 
-export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, context = null, compareDir = null, lint = null, writableRoots = [] }) {
+export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, context = null, compareDir = null, lint = null, writableRoots = [], allowHosts = [] }) {
   const sections = [];
 
   sections.push(`Review pull request #${pr.number} in ${pr.repository}.`);
@@ -42,8 +42,11 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, c
     const roots = writableRoots.length === 1 ? writableRoots[0] : `${writableRoots.slice(0, -1).join(", ")} and ${writableRoots.at(-1)}`;
     sections.push(
       [
-        `Scratch space. Writing is allowed under ${roots}: notes you take while reading,`,
-        `patched copies of a manifest, fetched refs, build output. Any other path is refused by the`,
+        `Scratch space. Writing is allowed under ${roots}: notes, fetched refs, patched copies of a`,
+        `checkout with its manifests, build and tool caches. A verb that rewrites a manifest`,
+        `'go mod tidy' or 'npm install' is fine in a copy there and refused in the checkout, which is`,
+        `how you check whether the change would come out clean. A tool this image does not carry is`,
+        `yours to fetch into those roots, from: ${allowHosts.join(", ")}. Anywhere else is refused by the`,
         `tool policy and lands in the harness notes, so do not spend a turn probing it. Never write`,
         `inside the checkout itself.`,
       ].join("\n"),

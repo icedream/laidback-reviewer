@@ -86,12 +86,14 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
 
   const collector = createProposalCollector();
   // One list for both halves: the guard allows these paths and the prompt names them, so the agent is
-  // not discovering the write boundary by hitting it.
-  const writableRoots = [cfg.checkout.scratch, "/tmp"];
+  // not discovering the write boundary by hitting it. The toolchain install dir is included because a
+  // repository that pins a version the image does not carry has to be able to fetch it itself.
+  const writableRoots = [cfg.checkout.scratch, cfg.toolchain.installDir, "/tmp"];
   const guard = createReviewGuard({
     allowHosts: cfg.tools.allowHosts,
     bashEnabled: cfg.tools.bash,
     writableRoots,
+    checkoutDir,
   });
 
   const contract = nonInteractiveContract({ cfg, checkoutDir, prRef: pr.repository });
@@ -116,6 +118,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     prior: { reviews, comments },
     compareDir,
     writableRoots,
+    allowHosts: cfg.tools.allowHosts,
     lint: lint.mode === "off" ? null : lint,
     context: context.matched ? { description: context.description, instructions: context.instructions } : null,
   });

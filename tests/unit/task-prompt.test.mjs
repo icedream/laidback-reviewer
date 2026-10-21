@@ -28,10 +28,13 @@ test("the prompt names the writable roots and forbids writing in the checkout", 
     checkoutDir: "/work/scratch/acme-svc-7-abcdef01",
     headSha: "abcdef0123456789",
     compareDir: "/work/scratch/refs",
-    writableRoots: ["/work/scratch", "/tmp"],
+    writableRoots: ["/work/scratch", "/work/tools", "/tmp"],
+    allowHosts: ["github.com", "proxy.golang.org"],
   });
 
-  assert.match(prompt, /Writing is allowed under \/work\/scratch and \/tmp/);
+  assert.match(prompt, /Writing is allowed under \/work\/scratch, \/work\/tools and \/tmp:/);
+  assert.match(prompt, /'go mod tidy' or 'npm install' is fine in a copy/);
+  assert.match(prompt, /from: github.com, proxy.golang.org/, "the hosts a tool download may use");
   assert.match(prompt, /Never write\s*\n?inside the checkout itself/);
   assert.match(prompt, /Put anything you fetch outside this PR in \/work\/scratch\/refs/);
 });
