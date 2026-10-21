@@ -1,11 +1,13 @@
-FROM node:24-slim
+# Node 24 is the LTS line (supported to 2028); Node 26 turns LTS on 2026-10-28, after which the bump
+# is one flag: docker build --build-arg NODE_VERSION=26-slim .
+ARG NODE_VERSION=24-slim
+FROM node:${NODE_VERSION}
 
-# Pinned so the bot runs the gates the way CI runs them. Update deliberately, not by drift. This is a
-# floor, not a promise: repositories pin their own golangci-lint, and the harness installs a pinned
-# release that differs from this one into the writable tools dir at run time.
-ARG GO_VERSION=1.26.10
+# Pinned so the bot runs gates the way CI runs them. Repositories pin their own golangci-lint, and the
+# harness installs a release that differs from this one into the writable tools dir at run time.
+ARG GO_VERSION=1.27.3
 ARG GOLANGCI_LINT_VERSION=v2.15.0
-ARG GH_VERSION=2.66.1
+ARG GH_VERSION=2.103.0
 ARG GH_STACK_VERSION=v0.2.1
 
 RUN apt-get update \
