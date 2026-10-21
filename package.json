@@ -12,6 +12,7 @@
     "review:once": "node src/cli/review-once.mjs",
     "gate": "node src/cli/gate.mjs",
     "gate:check": "node src/cli/gate-check.mjs",
+    "gate:check:docker": "docker compose run --rm reviewer node src/cli/gate-check.mjs",
     "fixture:build": "node tests/fixtures/repo.mjs --out",
     "test": "node --test --test-force-exit tests/unit/ tests/integration/",
     "smoke:strata": "node tests/integration/live-smoke.mjs"

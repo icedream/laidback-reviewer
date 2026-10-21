@@ -15,6 +15,9 @@ services:
       - LAIDBACK_STATE_DB=/data/state.db
       - LAIDBACK_ARTIFACT_DIR=/data/reviews
       - PI_CODING_AGENT_DIR=/app/.pi/agent
+      - SLACK_MCP_XOXB_TOKEN
+      - SLACK_MCP_XOXC_TOKEN
+      - SLACK_MCP_XOXD_TOKEN
     working_dir: /app
     command: ["node", "src/index.mjs"]
     volumes:

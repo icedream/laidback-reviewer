@@ -189,14 +189,32 @@ function validate(value, schema, path, errors) {
   }
 }
 
+/**
+ * Exactly two keys have an environment fallback: LAIDBACK_MODEL_PROVIDER and LAIDBACK_MODEL_ID. The
+ * model id belongs to the machine, the policy belongs to the file.
+ */
+function applyEnvDefaults(raw, env) {
+  const agent = raw?.agent ?? {};
+  const model = agent.model ?? {};
+  const out = { ...raw, agent: { ...agent, model: { ...model } } };
+  if (!out.agent.model.provider && env.LAIDBACK_MODEL_PROVIDER) out.agent.model.provider = env.LAIDBACK_MODEL_PROVIDER;
+  if (!out.agent.model.id && env.LAIDBACK_MODEL_ID) out.agent.model.id = env.LAIDBACK_MODEL_ID;
+  return out;
+}
+
 export function loadConfig({ path = process.env.LAIDBACK_CONFIG || "config.yaml", env = process.env } = {}) {
   if (!fs.existsSync(path)) {
     throw new Error(`config not found: ${path} (copy config.example.yaml to config.yaml)`);
   }
   const raw = parseYaml(fs.readFileSync(path, "utf8")) ?? {};
   const errors = [];
-  const cfg = validate(raw, CONFIG_SCHEMA, "", errors);
-  if (errors.length) throw new Error(`invalid config (${path}):\n  - ${errors.join("\n  - ")}`);
+  const cfg = validate(applyEnvDefaults(raw, env), CONFIG_SCHEMA, "", errors);
+  if (errors.length) {
+    const hint = errors.some((error) => /agent\.model\.(provider|id): required/.test(error))
+      ? "\n  (agent.model.provider and agent.model.id may also come from LAIDBACK_MODEL_PROVIDER and LAIDBACK_MODEL_ID)"
+      : "";
+    throw new Error(`invalid config (${path}):\n  - ${errors.join("\n  - ")}${hint}`);
+  }
   cfg._path = path;
   cfg._env = env;
   return cfg;

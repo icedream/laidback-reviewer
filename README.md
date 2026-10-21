@@ -202,7 +202,13 @@ Verify all of it without a pull request:
 ```bash
 npm run gate:check          # auth, channel discovery, a posted message, then waits for your reply
 npm run gate:check -- --timeout 60
+npm run gate:check:docker   # the same run inside the image
 ```
+
+The container form is the one that works without edits: `.env` is loaded by compose through
+`env_file`, and the paths in that file (`LAIDBACK_CONFIG=/app/config.yaml`, `/data`, tmpfs `/tmp`)
+only exist there. Nothing on the host reads `.env`, so a host-side run means exporting the variables
+yourself and pointing `LAIDBACK_CONFIG` at a local file.
 
 It writes to a throwaway state file, so approving its message has no effect on real reviews. With
 `transport: webhook` the message goes out but nothing can be read back, and the decision is taken with

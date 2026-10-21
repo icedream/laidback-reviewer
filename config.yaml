@@ -1,0 +1,9 @@
+reviews:
+  dryRun: false
+gate:
+  channel: slack
+  beforePost: true
+  timeoutHours: 24
+  onTimeout: hold
+  slack:
+    transport: userToken

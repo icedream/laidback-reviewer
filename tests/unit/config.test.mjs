@@ -60,3 +60,28 @@ test("secrets stay in the environment and a missing required one fails loudly", 
   assert.equal(secret(cfg, cfg.github.tokenEnv), "tok");
   assert.throws(() => secret(cfg, "LAIDBACK_NOT_SET", { required: true }), /missing environment variable LAIDBACK_NOT_SET/);
 });
+
+test("the model provider and id may come from the environment", () => {
+  const file = writeConfig({ github: { me: "octocat" } });
+  const cfg = loadConfig({ path: file, env: { LAIDBACK_MODEL_PROVIDER: "local/strata", LAIDBACK_MODEL_ID: "qwen3.8-flash-next" } });
+  assert.equal(cfg.agent.model.provider, "local/strata");
+  assert.equal(cfg.agent.model.id, "qwen3.8-flash-next");
+});
+
+test("a model written in the file wins over the environment", () => {
+  const file = writeConfig({ github: { me: "octocat" }, agent: { model: { provider: "file-provider", id: "file-model" } } });
+  const cfg = loadConfig({ path: file, env: { LAIDBACK_MODEL_PROVIDER: "env-provider", LAIDBACK_MODEL_ID: "env-model" } });
+  assert.equal(cfg.agent.model.provider, "file-provider");
+  assert.equal(cfg.agent.model.id, "file-model");
+});
+
+test("a missing required key names the environment alternative", () => {
+  const noMe = writeConfig({ agent: { model: { provider: "p", id: "m" } } });
+  assert.throws(() => loadConfig({ path: noMe, env: {} }), /github\.me: required/);
+
+  const noModel = writeConfig({ github: { me: "octocat" } });
+  assert.throws(
+    () => loadConfig({ path: noModel, env: {} }),
+    /agent\.model\.provider and agent\.model\.id may also come from LAIDBACK_MODEL_PROVIDER and LAIDBACK_MODEL_ID/,
+  );
+});
