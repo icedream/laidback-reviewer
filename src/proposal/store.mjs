@@ -5,7 +5,7 @@
  * else is already handled.
  */
 
-import Database from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 
 const SCHEMA = `
@@ -87,8 +87,10 @@ CREATE TABLE IF NOT EXISTS meta (
 `;
 
 export function openStore(path) {
-  const db = new Database(path);
-  db.pragma("journal_mode = WAL");
+  // Node's own sqlite: no native module, so the image needs no python or node-gyp and no ABI match
+  // with the Node version.
+  const db = new DatabaseSync(path);
+  db.exec("PRAGMA journal_mode = WAL;");
   db.exec(SCHEMA);
   // Columns added after the first release: exec() above is a no-op on an existing database.
   for (const column of ["slack_ts TEXT"]) {
@@ -209,8 +211,24 @@ export function createStore(db) {
         notes: JSON.stringify(notes),
         now: now(),
       };
-      if (existing) statements.updateReview.run(fields);
-      else statements.insertReview.run(fields);
+      if (existing) {
+        // node:sqlite rejects a named parameter the statement does not declare, unlike the previous
+        // driver, so the update gets exactly the columns it sets.
+        statements.updateReview.run({
+          id,
+          verdict: fields.verdict,
+          action: fields.action,
+          event: fields.event,
+          body: fields.body,
+          proposed_body: fields.proposed_body,
+          blocking: fields.blocking,
+          dry_run: fields.dry_run,
+          notes: fields.notes,
+          now: fields.now,
+        });
+      } else {
+        statements.insertReview.run(fields);
+      }
       for (const comment of composed.payload.comments) {
         statements.insertComment.run({
           review_id: id,

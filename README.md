@@ -236,6 +236,18 @@ way.
 acceptance criteria, the branch implements four, and nothing in the diff points at the fifth. The
 review that comes out names it.
 
+Run the suite inside the image as well, so the runtime the bot actually gets is the one under test:
+
+```bash
+npm run test:docker     # builds the image, then mounts tests/ and runs node --test inside it
+```
+
+The image carries no compiler: the state store uses Node's built-in `node:sqlite`, so `npm ci` needs
+no python or node-gyp. Its toolchain is Node 24, Go 1.26.10 with `GOTOOLCHAIN=auto` so a repository
+declaring a newer Go fetches its own, `golangci-lint` v2.15.0, and `gh` with `gh-stack` installed from
+the extension's release asset, because `gh extension install` wants a GitHub token that a build has no
+reason to hold.
+
 `npm run smoke:strata` runs the same fixture with the real `pr-review` agent and skills against your
 model and prints the composed review. Structural checks only; the review itself is for you to read.
 It reads the fake ticket by default (`--jira fake`); `--jira real` uses the host agent dir's `mcp.json`
@@ -243,8 +255,9 @@ and its OAuth cache instead. `--policy hint|submit|drop` picks which verdict sha
 the run itself never posts.
 
 Two model calls can collide: the loop and your interactive Pi session share one local inference
-server, which holds one prompt at a time. The loop runs one review at a time and backs off on a busy
-server.
+server, which holds one prompt at a time. The loop runs one review at a time, re-prompts a busy
+endpoint up to `agent.model.busyRetries` times, and spaces failed heads from `reviews.retryBaseMs`
+onward.
 
 ## Layout
 

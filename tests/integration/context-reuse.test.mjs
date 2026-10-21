@@ -12,7 +12,12 @@ import test from "node:test";
 import { setupReviewRun } from "../helpers/run-env.mjs";
 
 function pushEmptyCommit(dir, message) {
-  execFileSync("git", ["-C", dir, "commit", "--allow-empty", "-m", message], { stdio: "pipe", env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+  // The image has no global git identity, and a test that commits must not depend on one.
+  execFileSync(
+    "git",
+    ["-c", "user.name=test", "-c", "user.email=test@example.invalid", "-C", dir, "commit", "--allow-empty", "-m", message],
+    { stdio: "pipe", env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } },
+  );
   return execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 }
 

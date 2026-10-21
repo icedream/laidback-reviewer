@@ -7,3 +7,5 @@ gate:
   onTimeout: hold
   slack:
     transport: userToken
+github:
+  me: icedream
