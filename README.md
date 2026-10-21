@@ -117,6 +117,10 @@ github:
   deny: [example-corp/secret-*]
 ```
 
+Names are compared without regard to case, as GitHub resolves them, so a lowercase pattern admits the
+display casing the API reports. Everything downstream, including the store key, keeps the casing from
+the search hit rather than the one you wrote.
+
 With both allow lists empty the bot reviews nothing, which is the default worth having for a bot that
 posts from your own account. `orgs: ["*"]` is the wide setting that takes every repository the token
 sees. The filter runs on the search result, before `GET /pulls/N`, so an ignored repository costs one

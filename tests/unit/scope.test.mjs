@@ -30,6 +30,10 @@ test("github.repos admits exact names and globs within one segment", () => {
   assert.equal(matchRepository("other/orders-svc", { repos: ["*/orders-svc"] }).allowed, true);
   assert.equal(matchRepository("a/b/orders-svc", { repos: ["**/orders-svc"] }).allowed, true);
   assert.equal(matchRepository("a/b/orders-svc", { repos: ["*/orders-svc"] }).allowed, false);
+  // GitHub resolves owner and repository names regardless of case, so a lowercase pattern has to
+  // admit the display casing the API reports back.
+  assert.equal(matchRepository("ExampleCorp/Orders-Svc", { repos: ["examplecorp/orders-svc"] }).allowed, true);
+  assert.equal(matchRepository("ExampleCorp/Orders-Worker", { repos: ["examplecorp/orders-*"] }).allowed, true);
 });
 
 test("github.orgs admits every repository of a listed owner", () => {
@@ -51,6 +55,7 @@ test("github.deny outranks both allow lists", () => {
   // Deny also carries a repository out of an allow list that named it directly.
   const listed = { repos: ["example/orders-svc"], deny: ["example/orders-svc"] };
   assert.equal(matchRepository("example/orders-svc", listed).allowed, false);
+  assert.equal(matchRepository("Example/Orders-SVC", listed).allowed, false);
 });
 
 test("a search hit without owner and name is refused", () => {
