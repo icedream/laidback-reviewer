@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS seen (
   pr INTEGER NOT NULL,
   head_sha TEXT NOT NULL,
   checked_at TEXT NOT NULL,
+  rereviews INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (owner, repo, pr, head_sha)
 );
 
@@ -117,6 +118,11 @@ export function openStore(path) {
     } catch {
       // present already
     }
+  }
+  try {
+    db.exec("ALTER TABLE seen ADD COLUMN rereviews INTEGER NOT NULL DEFAULT 0");
+  } catch {
+    // present already
   }
   return createStore(db);
 }
@@ -154,7 +160,10 @@ export function createStore(db) {
     ),
     deleteComments: db.prepare(`DELETE FROM comments WHERE review_id = @review_id`),
     markSeen: db.prepare(
-      `INSERT OR REPLACE INTO seen (owner, repo, pr, head_sha, checked_at) VALUES (@owner, @repo, @pr, @head_sha, @now)`,
+      `INSERT INTO seen (owner, repo, pr, head_sha, checked_at, rereviews)
+       VALUES (@owner, @repo, @pr, @head_sha, @now, @bump)
+       ON CONFLICT(owner, repo, pr, head_sha)
+       DO UPDATE SET checked_at = @now, rereviews = rereviews + @bump`,
     ),
     getFailure: db.prepare(`SELECT * FROM failures WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha`),
     upsertFailure: db.prepare(
@@ -198,8 +207,10 @@ export function createStore(db) {
     alreadyHandled({ owner, repo, pr, head_sha }) {
       return !!statements.findSeen.get({ owner, repo, pr, head_sha });
     },
-    markSeen({ owner, repo, pr, head_sha }) {
-      statements.markSeen.run({ owner, repo, pr, head_sha, now: now() });
+    /** The seen row itself: when a head was handled, and how often it was reopened since. */
+    seenFor: (key) => statements.findSeen.get(key),
+    markSeen({ owner, repo, pr, head_sha, reReview = false, at }) {
+      statements.markSeen.run({ owner, repo, pr, head_sha, now: at ?? now(), bump: reReview ? 1 : 0 });
     },
 
     getFailure: (key) => statements.getFailure.get(key),

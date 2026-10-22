@@ -67,6 +67,17 @@ function requestedEvents(events, me) {
   );
 }
 
+/**
+ * The newest review request addressed to me that landed after this head was last handled. Empty when the
+ * only requests predate that pass, which is what keeps one request from reopening the head forever.
+ */
+export function latestRequestAt(events, me, handledAt) {
+  const later = requestedEvents(events, me)
+    .map((event) => event.created_at ?? "")
+    .filter((at) => at && at > handledAt);
+  return later.sort().at(-1) ?? "";
+}
+
 const triggerLabel = (kind) => (kind === "assigned" ? "assigned" : "review requested");
 
 /**
@@ -170,11 +181,24 @@ export async function findCandidates({ cfg, client, store, now = new Date() }) {
     if (item.updated_at && item.updated_at > newest) newest = item.updated_at;
 
     const pr = await client.getPull(located.owner, located.repo, located.number);
-    if (store.alreadyHandled({ owner: located.owner, repo: located.repo, pr: located.number, head_sha: pr.head.sha }) && !cfg.reviews.rereviewOnPush) {
-      continue;
+    const handled = store.seenFor({ owner: located.owner, repo: located.repo, pr: located.number, head_sha: pr.head.sha });
+    let reRequest = null;
+    if (handled && !cfg.reviews.respondToReRequest) continue;
+
+    // The timeline says whether a request arrived after the earlier pass, so it is read once here and
+    // reused by the trigger classification below.
+    const events = await client.listTimeline(located.owner, located.repo, located.number);
+
+    if (handled) {
+      const askedAt = latestRequestAt(events, cfg.github.me, handled.checked_at);
+      if (!askedAt) continue;
+      if ((handled.rereviews ?? 0) >= cfg.reviews.maxReReviewsPerHead) {
+        rejected.push({ pr: `${located.owner}/${located.repo}#${located.number}`, reason: `re-review ceiling for this head (${cfg.reviews.maxReReviewsPerHead}) already reached` });
+        continue;
+      }
+      reRequest = { askedAt, handledAt: handled.checked_at, rereviews: handled.rereviews ?? 0 };
     }
 
-    const events = await client.listTimeline(located.owner, located.repo, located.number);
     const wantsCodeowners = cfg.trigger.policy === "exclude_codeowners";
     const decision = classifyTrigger({
       pr,
@@ -199,6 +223,7 @@ export async function findCandidates({ cfg, client, store, now = new Date() }) {
       headRef: pr.head.ref,
       htmlUrl: pr.html_url,
       reason: decision.reason,
+      reRequest,
     });
   }
 

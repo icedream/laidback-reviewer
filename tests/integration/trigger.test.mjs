@@ -92,3 +92,65 @@ test("the review request path runs the review", async () => {
     env.close();
   }
 });
+
+/**
+ * The ordering that matters: an earlier pass over a head, a review request after it, and the pass that
+ * request caused. Fixed stamps keep that ordering instead of leaning on the clock.
+ */
+const EARLIER_PASS = "2026-04-01T00:00:00.000Z";
+const REQUEST_AFTER = "2026-04-03T11:24:00Z";
+const LATER_PASS = "2026-04-04T09:00:00.000Z";
+
+const reRequestEvent = (at = REQUEST_AFTER) => [
+  { event: "review_requested", actor: { login: "tech-lead", type: "User" }, requested_reviewer: { login: "octocat", type: "User" }, created_at: at },
+];
+
+test("a review requested again on a head already handled reopens it", async () => {
+  const env = await setupReviewRun({ prState: { requestedReviewers: ME, requestedTeams: [], assignees: [], timeline: reRequestEvent() } });
+  try {
+    const key = { owner: env.fixture.owner, repo: env.fixture.repo, pr: env.fixture.pr, head_sha: env.fixture.head.sha };
+    env.store.markSeen({ ...key, at: EARLIER_PASS });
+
+    const reopened = await findCandidates({ cfg: env.cfg, client: env.client, store: env.store });
+    assert.equal(reopened.candidates.length, 1, "a newer request is a fresh ask for work");
+    assert.equal(reopened.candidates[0].reRequest?.askedAt, REQUEST_AFTER, "the candidate carries the request that reopened it");
+    assert.equal(reopened.candidates[0].reRequest?.handledAt, EARLIER_PASS);
+
+    // The pass that request caused stamps the head again, so the same request cannot reopen it twice.
+    env.store.markSeen({ ...key, reReview: true, at: LATER_PASS });
+    const settled = await findCandidates({ cfg: env.cfg, client: env.client, store: env.store });
+    assert.deepEqual(settled.candidates, [], "one request reopens the head once");
+  } finally {
+    env.close();
+  }
+});
+
+test("a request that predates the earlier pass does not reopen the head", async () => {
+  const env = await setupReviewRun({ prState: { requestedReviewers: ME, requestedTeams: [], assignees: [], timeline: reRequestEvent() } });
+  try {
+    env.store.markSeen({ owner: env.fixture.owner, repo: env.fixture.repo, pr: env.fixture.pr, head_sha: env.fixture.head.sha, at: LATER_PASS });
+
+    const { candidates } = await findCandidates({ cfg: env.cfg, client: env.client, store: env.store });
+    assert.deepEqual(candidates, [], "the head is done until someone asks again");
+  } finally {
+    env.close();
+  }
+});
+
+test("the per-head ceiling stops a re-request loop from posting forever", async () => {
+  const env = await setupReviewRun({
+    prState: { requestedReviewers: ME, requestedTeams: [], assignees: [], timeline: reRequestEvent() },
+    overrides: { reviews: { respondToReRequest: true, maxReReviewsPerHead: 1 } },
+  });
+  try {
+    const key = { owner: env.fixture.owner, repo: env.fixture.repo, pr: env.fixture.pr, head_sha: env.fixture.head.sha };
+    env.store.markSeen({ ...key, at: EARLIER_PASS });
+    env.store.markSeen({ ...key, reReview: true, at: EARLIER_PASS });
+
+    const { candidates, rejected } = await findCandidates({ cfg: env.cfg, client: env.client, store: env.store });
+    assert.deepEqual(candidates, [], "the ceiling holds");
+    assert.match(JSON.stringify(rejected), /re-review ceiling/);
+  } finally {
+    env.close();
+  }
+});

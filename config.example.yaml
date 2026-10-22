@@ -17,7 +17,8 @@ trigger:
   skipDraft: true
 
 reviews:
-  rereviewOnPush: false             # review again when the head moves after the first review
+  respondToReRequest: true          # a review requested again on the same head reopens it
+  maxReReviewsPerHead: 3            # per head, so an automation that keeps re-requesting cannot make it post forever
   maxPerCycle: 2
   maxComments: 25
   budgetMs: 1200000                 # wall clock for one review; over it the session is cancelled and the head records a failure

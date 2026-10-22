@@ -5,7 +5,7 @@
 
 import { commentableLines } from "../github/anchoring.mjs";
 
-export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, context = null, compareDir = null, lint = null, writableRoots = [], allowHosts = [] }) {
+export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, reRequest = null, context = null, compareDir = null, lint = null, writableRoots = [], allowHosts = [] }) {
   const sections = [];
 
   sections.push(`Review pull request #${pr.number} in ${pr.repository}.`);
@@ -78,6 +78,16 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, c
     sections.push(["Already on this PR (do not repeat these findings):", ...existing].join("\n"));
   } else {
     sections.push("No review and no inline comment exists on this PR yet.");
+  }
+
+  if (reRequest) {
+    sections.push(
+      [
+        `Re-review: the review was requested again at ${reRequest.askedAt}, after an earlier pass of this`,
+        `same head at ${reRequest.handledAt}. The entries above include that pass, so repeating them adds`,
+        `nothing: say what has changed since, and whether the earlier concerns still stand.`,
+      ].join("\n"),
+    );
   }
 
   if (context) {

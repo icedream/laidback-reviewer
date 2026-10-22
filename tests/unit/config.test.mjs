@@ -205,3 +205,19 @@ test("a missing required key names the environment alternative", () => {
     /agent\.model\.provider and agent\.model\.id may also come from LAIDBACK_MODEL_PROVIDER and LAIDBACK_MODEL_ID/,
   );
 });
+
+test("a re-request reopens a head by default, with a ceiling", () => {
+  const file = writeConfig({ github: { me: "octocat" }, agent: { model: { provider: "p", id: "m" } } });
+  const cfg = loadConfig({ path: file, env: {} });
+
+  assert.equal(cfg.reviews.respondToReRequest, true, "the ask, not a push, is what reopens a head");
+  assert.equal(cfg.reviews.maxReReviewsPerHead, 3);
+});
+
+test("reviews.rereviewOnPush loads, and says it is gone", () => {
+  const file = writeConfig({ github: { me: "octocat" }, agent: { model: { provider: "p", id: "m" } }, reviews: { rereviewOnPush: true } });
+  const cfg = loadConfig({ path: file, env: {} });
+
+  assert.ok(cfg._deprecations.some((note) => /rereviewOnPush is gone/.test(note)), `notes: ${JSON.stringify(cfg._deprecations)}`);
+  assert.equal(cfg.reviews.respondToReRequest, true, "the old flag does not turn the new behaviour off");
+});

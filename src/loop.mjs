@@ -63,7 +63,7 @@ export async function cycle({
     }
     if (deferral) store.clearDeferral(key);
 
-    log(`  candidate ${candidate.htmlUrl}: ${candidate.reason}${plan.attempts ? ` (${plan.reason})` : ""}`);
+    log(`  candidate ${candidate.htmlUrl}: ${candidate.reason}${candidate.reRequest ? ` (re-requested ${candidate.reRequest.askedAt.slice(0, 16)}, earlier pass ${candidate.reRequest.handledAt.slice(0, 16)})` : ""}${plan.attempts ? ` (${plan.reason})` : ""}`);
     let checkout = null;
     try {
       checkout = prepareCheckout({
@@ -80,7 +80,7 @@ export async function cycle({
         store,
         client,
         slack,
-        task: { owner: candidate.owner, repo: candidate.repo, pr: candidate.pr, checkoutDir: checkout.dir, compareDir: checkout.compareDir, runId: checkout.runId },
+        task: { owner: candidate.owner, repo: candidate.repo, pr: candidate.pr, checkoutDir: checkout.dir, compareDir: checkout.compareDir, runId: checkout.runId, reRequest: candidate.reRequest ?? null },
         piAgentDir,
         artifactDir,
         log,

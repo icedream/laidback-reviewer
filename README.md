@@ -160,8 +160,10 @@ choice:
 The section used to be called `assignment:`. That spelling is still read, translated into `trigger:`,
 and named in the startup log rather than dropped.
 
-Dedupe is per `(owner, repo, pr, head_sha)`, so a force push is a new candidate and
-`reviews.rereviewOnPush` decides whether it gets reviewed again.
+Dedupe is per `(owner, repo, pr, head_sha)`, so a force push is a new candidate. A review requested
+again on the same head reopens it when `reviews.respondToReRequest` is on, up to
+`reviews.maxReReviewsPerHead` times per head, and the task prompt then says plainly that this is a
+re-review so the model reports what changed instead of repeating itself.
 
 ## Inline comments and anchoring
 

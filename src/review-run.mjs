@@ -75,7 +75,9 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     client.listInlineComments(owner, repo, prNumber),
   ]);
 
-  if (store.alreadyHandled({ owner, repo, pr: prNumber, head_sha: headSha }) && !cfg.reviews.rereviewOnPush) {
+  // A head is reviewed once. What reopens it is a fresh review request, carried in by discovery, or a
+  // direct invocation, which is the operator asking for another pass by hand.
+  if (store.alreadyHandled({ owner, repo, pr: prNumber, head_sha: headSha }) && !task.reRequest && !task.manual) {
     return { skipped: "already_reviewed", pr };
   }
 
@@ -125,6 +127,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     checkoutDir,
     headSha,
     prior: { reviews, comments },
+    reRequest: task.reRequest ?? null,
     compareDir,
     writableRoots,
     allowHosts: cfg.tools.allowHosts,
@@ -248,7 +251,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     checkoutDir,
     stackKey: stack.key,
   });
-  store.markSeen({ owner, repo, pr: prNumber, head_sha: headSha });
+  store.markSeen({ owner, repo, pr: prNumber, head_sha: headSha, reReview: Boolean(task.reRequest) });
 
   const gateState = await gate.open({
     stage: "before_post",

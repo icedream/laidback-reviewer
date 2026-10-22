@@ -39,6 +39,12 @@ export const CONFIG_SCHEMA = record({
     skipDraft: bool({ def: true }),
   }),
   reviews: record({
+    // A review request that arrives after a head was already handled reopens it: the head did not move,
+    // the ask did. Capped, because a bot that keeps re-requesting would otherwise post without limit.
+    respondToReRequest: bool({ def: true }),
+    maxReReviewsPerHead: integer({ def: 3, min: 0 }),
+    // Deprecated. A moved head is a new key, so it is reviewed again whatever this says; set to true it
+    // only ever bypassed the seen table and re-posted the same head every cycle. Translated away below.
     rereviewOnPush: bool({ def: false }),
     maxPerCycle: integer({ def: 2, min: 1 }),
     maxComments: integer({ def: 25, min: 1 }),
@@ -316,12 +322,20 @@ export function loadConfig({ path = process.env.LAIDBACK_CONFIG || "config.yaml"
     }
     throw new Error(`invalid config (${path}):\n  - ${errors.join("\n  - ")}${hint}`);
   }
-  cfg._deprecations = applyTriggerAliases(raw, cfg);
+  cfg._deprecations = [...applyTriggerAliases(raw, cfg), ...applyReviewAliases(raw, cfg)];
   cfg.agent.agentDir = expandHome(cfg.agent.agentDir, env);
   cfg.agent.skillsDir = expandHome(cfg.agent.skillsDir, env);
   cfg._path = path;
   cfg._env = env;
   return cfg;
+}
+
+/** `reviews.rereviewOnPush` is gone: re-review follows the request, not a flag that only skipped the seen table. */
+function applyReviewAliases(raw, cfg) {
+  const legacy = raw.reviews?.rereviewOnPush;
+  if (legacy === undefined) return [];
+  if (raw.reviews?.respondToReRequest === undefined) cfg.reviews.respondToReRequest = true;
+  return ["reviews.rereviewOnPush is gone; a moved head is a new key and is reviewed again anyway, so reviews.respondToReRequest now covers a re-request on the same head (maxReReviewsPerHead caps it)"];
 }
 
 /** `assignment:` was renamed to `trigger:`; old files still load, with a startup note. */

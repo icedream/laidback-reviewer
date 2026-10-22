@@ -90,3 +90,18 @@ test("a PR nobody has looked at says so", () => {
 
   assert.match(prompt, /No review and no inline comment exists on this PR yet\./);
 });
+
+test("a re-review is named, so the model reports what changed instead of repeating itself", () => {
+  const prompt = buildTaskPrompt({
+    pr,
+    files,
+    checkoutDir: "/work/x",
+    headSha: "abcdef0123456789",
+    prior: { reviews: [{ id: 9, user: { login: "octocat" }, state: "COMMENTED" }], comments: [] },
+    reRequest: { askedAt: "2026-04-03T11:24:00Z", handledAt: "2026-04-01T00:00:00.000Z", rereviews: 1 },
+  });
+
+  assert.match(prompt, /Already on this PR/);
+  assert.match(prompt, /Re-review: the review was requested again at 2026-04-03T11:24:00Z[\s\S]*earlier pass of this[\s\S]*same head at 2026-04-01T00:00:00.000Z/);
+  assert.match(prompt, /say what has changed since, and whether the earlier concerns still stand/);
+});
