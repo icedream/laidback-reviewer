@@ -110,14 +110,25 @@ test("assembleBody skips empty slots", () => {
   assert.equal(assembleBody({ prefix: "", body: "b", verdictLine: "", suffix: "" }), "b");
 });
 
-test("an approval the body already states is not restated by the harness", () => {
+test("the approve wording is the operator's sentence, added once", () => {
   const config = cfg();
   config.reviews.hintWording = { ...config.reviews.hintWording, approve: "LGTM, would normally approve at this point." };
 
-  const doubled = composeReview({ proposal: proposal({ body: "The manifests are tidy, nothing here breaks a call site." }), cfg: config, files, headSha: "abc" });
-  assert.match(doubled.payload.body, /LGTM, would normally approve/);
+  // Stated verbatim already: not added again.
+  const stated = composeReview({
+    proposal: proposal({ body: `The manifests are tidy.\n${config.reviews.hintWording.approve}` }),
+    cfg: config,
+    files,
+    headSha: "abc",
+    owner: "example",
+    repo: "orders-svc",
+  });
+  assert.equal((stated.payload.body.match(/would normally approve/g) ?? []).length, 1);
 
-  const stated = composeReview({ proposal: proposal({ body: "LGTM. The manifests are tidy and nothing here breaks a call site." }), cfg: config, files, headSha: "abc" });
-  const lgtms = (stated.payload.body.match(/LGTM/g) ?? []).length;
-  assert.equal(lgtms, 1, `the verdict formula appeared ${lgtms} times:\n${stated.payload.body}`);
+  // Phrased by the review instead: the harness adds no second opinion on wording.
+  const empty = cfg();
+  empty.reviews.hintWording = { ...empty.reviews.hintWording, approve: "" };
+  const delegated = composeReview({ proposal: proposal({ body: "LGTM. The manifests are tidy." }), cfg: empty, files, headSha: "abc", owner: "example", repo: "orders-svc" });
+  assert.match(delegated.payload.body, /^LGTM\. The manifests are tidy\./);
+  assert.doesNotMatch(delegated.payload.body, /Verdict:/);
 });

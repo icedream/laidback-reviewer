@@ -26,7 +26,7 @@ reviews:
   approve: hint                     # submit | hint | drop
   requestChanges: hint              # submit | hint | drop
   hintWording:
-    approve: "Verdict: I would have approved this."
+    approve: "Verdict: I would have approved this."   # "" leaves the verdict to the review's own wording
     requestChanges: "Verdict: I would have requested changes."
 
 banner:

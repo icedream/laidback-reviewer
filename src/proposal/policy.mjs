@@ -7,6 +7,7 @@
  */
 
 import { anchorComment } from "../github/anchoring.mjs";
+import { normaliseCitations } from "./links.mjs";
 
 export const VERDICT_EVENT = {
   approve: "APPROVE",
@@ -20,21 +21,28 @@ const VERDICT_ACTION = {
   comment: () => "submit",
 };
 
+/** Case- and whitespace-insensitive, tolerant of the punctuation a sentence ends with. */
+function containsSentence(text, sentence) {
+  const flatten = (value) =>
+    String(value ?? "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+  const needle = flatten(sentence).replace(/[.,;:]+$/, "");
+  if (!needle) return false;
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|\\s)${escaped}([.,;:!?]|\\s|$)`).test(flatten(text));
+}
+
 function verdictLineFor(verdict, action, cfg, proposal) {
   if (action !== "hint") return "";
   if (verdict === "approve") {
-    // The agent's own body may open with the org's approval formula. This line states the gate's policy
-    // state, so where the verdict word is already in front of the reader it says nothing new twice.
-    const opener = String(proposal?.body ?? "")
-      .trim()
-      .split("\n")[0]
-      .toLowerCase();
-    const formula = String(cfg.reviews.hintWording.approve)
-      .trim()
-      .split(/[,.;]/)[0]
-      .toLowerCase();
-    if (formula && opener.startsWith(formula)) return "";
-    return cfg.reviews.hintWording.approve;
+    // Phrase matching assumed a shape in a user-written sentence and was the wrong kind of clever. The
+    // only check kept is the one that needs no assumption: the sentence is already there, say it once.
+    // Phrasing an approval is the review's job, so an empty wording adds no sentence at all.
+    const wording = String(cfg.reviews.hintWording.approve ?? "").trim();
+    if (!wording) return "";
+    return containsSentence(proposal?.body, wording) ? "" : wording;
   }
   if (verdict === "request_changes") {
     const blockers = (proposal?.blocking ?? []).filter(Boolean);
@@ -96,7 +104,7 @@ export function validateBannerSlot(original, rewritten, { label = "banner" } = {
  * @param files      `GET /pulls/N/files` result for the current head
  * @param headSha    the head the review is pinned to
  */
-export function composeReview({ proposal, cfg, files, headSha }) {
+export function composeReview({ proposal, cfg, files, headSha, owner, repo }) {
   const decisions = [];
   const notes = [];
 
@@ -137,12 +145,27 @@ export function composeReview({ proposal, cfg, files, headSha }) {
     verdictLine = verdictLineFor(proposal.verdict, action, cfg, proposal);
   }
 
+  // Citation form is mechanical, so it is fixed here rather than hoped for: a bare permalink inside a
+  // sentence becomes an alt-text link, and a plain mention of a file this PR touches is pinned to the head
+  // under review. Doing it before the gate means the gate, the artifact and GitHub all show one text.
+  const knownPaths = new Set((files ?? []).map((file) => file.filename));
+  let inlined = 0;
+  let pinned = 0;
+  const cite = (text) => {
+    const result = normaliseCitations(text, { owner, repo, headSha, knownPaths });
+    inlined += result.inlined;
+    pinned += result.pinned;
+    return result.text;
+  };
+  for (const comment of comments) comment.body = cite(comment.body);
+
   const body = assembleBody({
     prefix: proposal.banner?.prefix ?? cfg.banner.prefix,
-    body: proposal.body ?? "",
+    body: cite(proposal.body ?? ""),
     verdictLine,
     suffix: proposal.banner?.suffix ?? cfg.banner.suffix,
   });
+  if (inlined || pinned) notes.push(`citations: ${inlined} bare permalink(s) given alt text, ${pinned} file mention(s) pinned to ${headSha.slice(0, 8)}`);
 
   if (!(proposal.body ?? "").trim() && !comments.length) {
     // A banner alone is not a review: refuse rather than post an empty check-in on someone's PR.

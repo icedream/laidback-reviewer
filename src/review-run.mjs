@@ -285,7 +285,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     }
   }
 
-  const composed = composeReview({ proposal, cfg, files, headSha });
+  const composed = composeReview({ proposal, cfg, files, headSha, owner, repo });
   if (cfg.logging.level === "debug") log(`debug: policy ${composed.verdict} -> ${composed.action} (${composed.event}), ${composed.payload.comments.length} comment(s), ${composed.payload.body.length} chars of body`);
   const reviewId = store.saveReview({ owner, repo, pr: prNumber, head_sha: headSha, composed, dryRun: cfg.reviews.dryRun, notes });
   const artifactPath = writeArtifact({
@@ -358,7 +358,7 @@ async function postComposed({ client, owner, repo, prNumber, headSha, proposal, 
     if (!(error instanceof HeadMovedError)) throw error;
     log(`${error.message}; re-anchoring against the new head`);
     const freshFiles = await client.listFiles(owner, repo, prNumber);
-    const again = composeReview({ proposal, cfg, files: freshFiles, headSha: error.actual });
+    const again = composeReview({ proposal, cfg, files: freshFiles, headSha: error.actual, owner, repo });
     return submitReview({ client, owner, repo, pr: prNumber, payload: again.payload, expectedHeadSha: error.actual });
   }
 }

@@ -40,7 +40,7 @@ export async function postApprovedReview({ cfg, store, client, reviewId, log = (
     blocking: JSON.parse(row.blocking ?? "[]"),
   };
 
-  const composed = composeReview({ proposal, cfg, files, headSha: currentHead });
+  const composed = composeReview({ proposal, cfg, files, headSha: currentHead, owner: row.owner, repo: row.repo });
   const posted = await submitReview({ client, owner: row.owner, repo: row.repo, pr: row.pr, payload: composed.payload, expectedHeadSha: currentHead });
   store.markPosted({ id: reviewId, github_review_id: posted.id, html_url: posted.html_url });
   log(`posted ${posted.state} on ${row.owner}/${row.repo}#${row.pr}: ${posted.html_url}`);
