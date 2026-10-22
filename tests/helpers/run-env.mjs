@@ -166,12 +166,12 @@ export async function setupReviewRun({ overrides = {}, scriptOptions = {}, turns
   const logLines = [];
   const log = (line) => logLines.push(String(line));
 
-  const run = () =>
+  const run = (taskExtra = {}) =>
     runReview({
       cfg,
       store,
       client,
-      task: { owner: fixture.owner, repo: fixture.repo, pr: fixture.pr, checkoutDir: fixture.dir },
+      task: { owner: fixture.owner, repo: fixture.repo, pr: fixture.pr, checkoutDir: fixture.dir, ...taskExtra },
       piAgentDir: agentDir,
       artifactDir: path.join(dir, "reviews"),
       log,
