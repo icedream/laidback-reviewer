@@ -8,6 +8,7 @@
 
 import { prepareCheckout, releaseWorktree } from "./checkout.mjs";
 import { findCandidates } from "./discovery.mjs";
+import { taskGateDecision } from "./gate/gate.mjs";
 import { clearFailure, failurePlan, recordFailure } from "./proposal/retries.mjs";
 import { postApprovedReview } from "./proposal/repost.mjs";
 import { runReview } from "./review-run.mjs";
@@ -63,11 +64,14 @@ export async function cycle({
     }
     if (deferral) store.clearDeferral(key);
 
-    // A head waiting behind a task gate waits once, not once per cycle: the review has not run, so nothing
-    // marked it seen, and every cycle would otherwise post another message for the same ask.
-    const waiting = store.pendingGateFor({ owner: candidate.owner, repo: candidate.repo, pr: candidate.pr, stage: "before_review" });
-    if (waiting) {
-      log(`  candidate ${candidate.htmlUrl}: already queued at gate ${waiting.id}, waiting on the decision`);
+    // One gate answers one review request. While that gate stands, or once it has been answered, the cycle
+    // leaves the head alone: only a newer request asks again, and that arrives as a different candidate.
+    const taskGate = taskGateDecision(
+      store.latestGateFor({ owner: candidate.owner, repo: candidate.repo, pr: candidate.pr, stage: "before_review" }),
+      candidate.requestTs ?? "",
+    );
+    if (!taskGate.proceed && taskGate.kind !== "none" && taskGate.kind !== "re-requested") {
+      log(`  candidate ${candidate.htmlUrl}: task gate ${taskGate.gateId} is ${taskGate.kind}; nothing runs`);
       continue;
     }
 
@@ -88,7 +92,7 @@ export async function cycle({
         store,
         client,
         slack,
-        task: { owner: candidate.owner, repo: candidate.repo, pr: candidate.pr, checkoutDir: checkout.dir, compareDir: checkout.compareDir, runId: checkout.runId, reRequest: candidate.reRequest ?? null },
+        task: { owner: candidate.owner, repo: candidate.repo, pr: candidate.pr, checkoutDir: checkout.dir, compareDir: checkout.compareDir, runId: checkout.runId, reRequest: candidate.reRequest ?? null, requestTs: candidate.requestTs ?? null },
         piAgentDir,
         artifactDir,
         log,

@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS gates (
   repo TEXT,
   pr INTEGER,
   head_sha TEXT,
+  request_ts TEXT,
+  consumed_at TEXT,
   created_at TEXT NOT NULL,
   decided_at TEXT,
   decided_by TEXT,
@@ -116,7 +118,7 @@ export function openStore(path) {
       // present already
     }
   }
-  for (const column of ["owner TEXT", "repo TEXT", "pr INTEGER", "head_sha TEXT"]) {
+  for (const column of ["owner TEXT", "repo TEXT", "pr INTEGER", "head_sha TEXT", "request_ts TEXT", "consumed_at TEXT"]) {
     try {
       db.exec(`ALTER TABLE gates ADD COLUMN ${column}`);
     } catch {
@@ -197,13 +199,19 @@ export function createStore(db) {
     reviewFor: db.prepare(`SELECT * FROM reviews WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha`),
     commentsFor: db.prepare(`SELECT * FROM comments WHERE review_id = @review_id ORDER BY id`),
     openGate: db.prepare(
-      `INSERT INTO gates (id, kind, review_id, state, summary, owner, repo, pr, head_sha, created_at)
-       VALUES (@id, @kind, @review_id, 'pending', @summary, @owner, @repo, @pr, @head_sha, @now)`,
+      `INSERT INTO gates (id, kind, review_id, state, summary, owner, repo, pr, head_sha, request_ts, created_at)
+       VALUES (@id, @kind, @review_id, 'pending', @summary, @owner, @repo, @pr, @head_sha, @request_ts, @now)`,
     ),
+    consumeGate: db.prepare(`UPDATE gates SET consumed_at = @now WHERE id = @id`),
     findPendingGate: db.prepare(
       `SELECT * FROM gates
        WHERE state = 'pending' AND owner = @owner AND repo = @repo AND pr = @pr AND kind LIKE @stage_prefix
        ORDER BY created_at LIMIT 1`,
+    ),
+    findLatestGate: db.prepare(
+      `SELECT * FROM gates
+       WHERE owner = @owner AND repo = @repo AND pr = @pr AND kind LIKE @stage_prefix
+       ORDER BY created_at DESC LIMIT 1`,
     ),
     getGate: db.prepare(`SELECT * FROM gates WHERE id = @id`),
     setSlackTs: db.prepare(`UPDATE gates SET slack_ts = @ts WHERE id = @id`),
@@ -313,14 +321,20 @@ export function createStore(db) {
     recentReviews: ({ owner = null, repo = null, sinceIso }) =>
       statements.recentReviews.all({ owner, repo, since: sinceIso }),
 
-    openGate({ kind, review_id = null, summary, owner = null, repo = null, pr = null, head_sha = null }) {
+    openGate({ kind, review_id = null, summary, owner = null, repo = null, pr = null, head_sha = null, request_ts = null }) {
       const id = randomUUID().slice(0, 8);
-      statements.openGate.run({ id, kind, review_id, summary, owner, repo, pr, head_sha, now: now() });
+      statements.openGate.run({ id, kind, review_id, summary, owner, repo, pr, head_sha, request_ts, now: now() });
       return id;
     },
+    /** Record that an approved task gate has been acted on, so one approval releases the head once. */
+    consumeGate: (id) => statements.consumeGate.run({ id, now: now() }),
     /** The gate a head already sits behind, by stage: "before_review" or "before_post". */
     pendingGateFor({ owner, repo, pr, stage }) {
       return statements.findPendingGate.get({ owner, repo, pr, stage_prefix: `${stage}:%` });
+    },
+    /** The most recent gate for that head and stage, whatever it decided. */
+    latestGateFor({ owner, repo, pr, stage }) {
+      return statements.findLatestGate.get({ owner, repo, pr, stage_prefix: `${stage}:%` });
     },
     getGate: (id) => statements.getGate.get({ id }),
     setSlackTs: ({ id, ts }) => statements.setSlackTs.run({ id, ts }),

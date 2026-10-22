@@ -223,6 +223,9 @@ export async function findCandidates({ cfg, client, store, now = new Date() }) {
       headRef: pr.head.ref,
       htmlUrl: pr.html_url,
       reason: decision.reason,
+      // The request this candidate answers. A gate records it, so the same request cannot gate the head
+      // twice and a newer one can.
+      requestTs: latestRequestAt(events, cfg.github.me, ""),
       reRequest,
     });
   }

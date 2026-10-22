@@ -6,6 +6,19 @@
  * the same interface: present(), then poll for the decision.
  */
 
+/**
+ * Which ask a head is waiting on. A gate answers the review request it was opened for, recorded as that
+ * event's timestamp: the same request never gates a head twice, and a newer request is a fresh ask even
+ * where an older one was rejected. `askedAt` empty means the request is unknown, so only the state counts.
+ */
+export function taskGateDecision(prior, askedAt = "") {
+  if (!prior) return { kind: "none", proceed: false };
+  if (askedAt && (!prior.request_ts || prior.request_ts < askedAt)) return { kind: "re-requested", proceed: false };
+  if (prior.state === "approved" && !prior.consumed_at) return { kind: "approved", proceed: true, gateId: prior.id };
+  if (prior.state === "approved") return { kind: "consumed", proceed: false, gateId: prior.id };
+  return { kind: prior.state, proceed: false, gateId: prior.id };
+}
+
 export function createGate({ cfg, store, log = () => {}, slack = null }) {
   const kind = cfg.gate.channel;
 
@@ -24,13 +37,23 @@ export function createGate({ cfg, store, log = () => {}, slack = null }) {
      * Open a gate for a composed review.
      * Returns { state: "approved" | "queued" | "skipped", gateId }.
      */
-    async open({ stage, reviewId, summary, target = null }) {
+    /**
+     * What the task gate for this head already says, so an approval releases the head instead of being
+     * read and forgotten. `requestedAt` is the review request that reopened it, which can overrule an
+     * older rejection.
+     */
+    priorDecision({ stage, target, askedAt = "" }) {
+      return taskGateDecision(store.latestGateFor({ ...target, stage }), askedAt);
+    },
+
+    async open({ stage, reviewId, summary, target = null, requestTs = null }) {
       if (!this.requiresApproval(stage)) return { state: "approved", gateId: null };
 
       const gateId = store.openGate({
         kind: `${stage}:${kind}`,
         review_id: reviewId,
         summary,
+        request_ts: requestTs,
         ...(target ?? {}),
       });
 

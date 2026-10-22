@@ -50,6 +50,7 @@ export function toPrView(json, { owner, repo }) {
 
 export async function runReview({ cfg, store, client, task, piAgentDir, artifactDir, slack = null, log = console.error }) {
   const { owner, repo, pr: prNumber, checkoutDir } = task;
+  let approvedTaskGate = null;
   const prJson = await client.getPull(owner, repo, prNumber);
   const pr = toPrView(prJson, { owner, repo });
   const headSha = pr.head.sha;
@@ -60,16 +61,26 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
 
   const files = await client.listFiles(owner, repo, prNumber);
   const gate = createGate({ cfg, store, log, slack });
-
-  const preGate = await gate.open({
-    stage: "before_review",
-    reviewId: null,
-    target: { owner, repo, pr: prNumber, head_sha: headSha },
-    summary: `Review requested for ${pr.repository}#${pr.number} at ${headSha.slice(0, 8)}: ${pr.title}`,
-  });
-  if (preGate.state !== "approved") {
-    return { skipped: "gate_queued", gate: preGate, pr };
+  const target = { owner, repo, pr: prNumber, head_sha: headSha };
+  // The gate answers one review request, identified by that event's timestamp, so approving it releases
+  // this head once and a later request is what asks again.
+  const taskGate = gate.priorDecision({ stage: "before_review", target, askedAt: task.requestTs ?? "" });
+  if (!taskGate.proceed) {
+    if (taskGate.kind === "none" || taskGate.kind === "re-requested") {
+      const preGate = await gate.open({
+        stage: "before_review",
+        reviewId: null,
+        target,
+        requestTs: task.requestTs ?? null,
+        summary: `Review requested for ${pr.repository}#${pr.number} at ${headSha.slice(0, 8)}: ${pr.title}`,
+      });
+      return { skipped: "gate_queued", gate: preGate, pr };
+    }
+    log(`task gate ${taskGate.gateId} is ${taskGate.kind} for this head; the review does not run`);
+    return { skipped: `gate_${taskGate.kind}`, gate: taskGate, pr };
   }
+  log(`task gate ${taskGate.gateId} answers this request: running the review`);
+  approvedTaskGate = taskGate.gateId;
 
   const [reviews, comments] = await Promise.all([
     client.listReviews(owner, repo, prNumber),
@@ -253,6 +264,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     stackKey: stack.key,
   });
   store.markSeen({ owner, repo, pr: prNumber, head_sha: headSha, reReview: Boolean(task.reRequest) });
+  if (approvedTaskGate) store.consumeGate(approvedTaskGate);
 
   const gateState = await gate.open({
     stage: "before_post",
