@@ -27,7 +27,9 @@ services:
       - SLACK_MCP_XOXC_TOKEN
       - SLACK_MCP_XOXD_TOKEN
       - GONOSUMDB
-      - GOPATH
+      # Pinned rather than passed through: a host GOPATH names a directory that does not exist in the
+      # container, and the caches the image puts under /data are what survive a rebuild.
+      - GOPATH=/data/go
       - GOPRIVATE
       - GOSUMDB
     working_dir: /app

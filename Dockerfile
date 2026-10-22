@@ -59,12 +59,16 @@ ENV LAIDBACK_CONFIG=/app/config.yaml \
     LAIDBACK_STATE_DB=/data/state.db \
     LAIDBACK_ARTIFACT_DIR=/data/reviews \
     PI_CODING_AGENT_DIR=/app/.pi/agent \
+    GOPATH=/data/go \
     GOMODCACHE=/data/go/pkg/mod \
     GOCACHE=/data/go/build \
     # A repository that declares a newer Go than this floor gets its own toolchain, fetched into the
     # module cache rather than failing the gate.
     GOTOOLCHAIN=auto \
     GOLANGCI_LINT_CACHE=/data/golangci-lint
+
+# go install, and a Go toolchain the repository fetched, land in $GOPATH/bin.
+ENV PATH=/data/go/bin:${PATH}
 
 HEALTHCHECK --interval=120s --timeout=10s --start-period=60s --retries=3 \
   CMD node -e "console.log('alive')"
