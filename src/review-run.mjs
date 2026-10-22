@@ -10,6 +10,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { loadAgentDef, nonInteractiveContract } from "./agent/agent-def.mjs";
 import { createReviewGuard } from "./agent/guard.mjs";
 import { createProgress } from "./agent/progress.mjs";
+import { waitForMcpTools } from "./agent/mcp-settle.mjs";
 import { promptWithModelRetry } from "./agent/model-retry.mjs";
 import { modelServerStatus, resolveModelServer } from "./agent/model-server.mjs";
 import { ModelBusyError } from "./agent/run-watch.mjs";
@@ -168,10 +169,17 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
 
   let progress = null;
   let stopProgress = null;
+  let settle = { waitedMs: 0, ready: [], missing: [] };
   let busyRetriesUsed = 0;
   try {
     progress = createProgress({ log, mode: cfg.logging.progress, heartbeatMs: cfg.logging.heartbeatMs });
     stopProgress = session.subscribe(progress.handle);
+
+    // The MCP extension connects after the session exists. Prompting at that moment asks the model to
+    // open a ticket it has no tool for, and the review would still post without that coverage.
+    settle = await waitForMcpTools({ session, servers: cfg.tools.mcp, timeoutMs: cfg.agent.mcpSettleMs });
+    if (settle.ready.length) log(`mcp tools ready: ${settle.ready.join(", ")} after ${settle.waitedMs}ms`);
+    if (settle.missing.length) log(`no mcp tools for: ${settle.missing.join(", ")} (waited ${settle.waitedMs}ms)`);
 
     log(`review ${pr.repository}#${pr.number} at ${headSha.slice(0, 8)}: agent ${agentDef.name}, ${files.length} changed files`);
     if (cfg.logging.level === "debug") {
@@ -188,6 +196,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   }
 
   const notes = [];
+  if (settle.missing.length) notes.push(`no MCP tools for ${settle.missing.join(", ")}: the server did not connect within ${cfg.agent.mcpSettleMs}ms, so the ticket was not read`);
   if (lint.note) notes.push(`lint tooling: ${lint.note}`);
   if (lint.conflict) notes.push(`linter pins disagree: ${lint.pins.map((pin) => `${pin.version} (${pin.source})`).join(", ")}`);
   if (busyRetriesUsed) notes.push(`model endpoint failed ${busyRetriesUsed} time(s); the session was asked to continue`);

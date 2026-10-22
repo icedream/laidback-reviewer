@@ -77,6 +77,9 @@ export const CONFIG_SCHEMA = record({
     name: string({ def: "pr-review" }),
     agentDir: string({ def: ".pi/agent/agents" }),
     skillsDir: string({ def: "" }),
+    // MCP servers connect in the background after the session exists. This bounds how long a run waits
+    // for their tools before prompting without them; 0 never waits.
+    mcpSettleMs: integer({ def: 8_000, min: 0 }),
     systemPromptAddendum: string({ def: "" }),
     model: record({
       provider: string({ required: true }),
