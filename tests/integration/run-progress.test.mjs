@@ -21,9 +21,11 @@ test("an approved task gate is rewritten as the review runs, and ends on the out
     assert.ok(!result.skipped, "the review ran");
     assert.ok(statuses.length >= 2, `expected an opening stage and an outcome, saw ${statuses.length}`);
     assert.ok(statuses.every((entry) => entry.gateId === "262970ec"));
-    assert.match(statuses[0].text, /<b>Reviewing example\/orders-svc#143<\/b>/);
+    assert.match(statuses[0].text, /^<a href="https:\/\/github\.com\/example\/orders-svc\/pull\/143">Reviewing example\/orders-svc#143<\/a>$/m);
     assert.match(statuses[0].text, /Now: reading the pull request/);
-    assert.match(statuses.at(-1).text, /review composed/);
+    assert.match(statuses.at(-1).text, /head [0-9a-f]{8} on /, "the message says which head it is about");
+    assert.match(statuses.at(-1).text, /<b>review composed<\/b>/);
+    assert.match(statuses.at(-1).text, /Reviewing example\/orders-svc#143/, "the outcome still names the pull request");
     assert.match(statuses.at(-1).text, /elapsed \d\d:\d\d of \d\d:\d\d/);
     // A fast run only gets the throttle's worth of writes; the coalescing itself is pinned in
     // tests/unit/run-status.test.mjs with a controlled clock.

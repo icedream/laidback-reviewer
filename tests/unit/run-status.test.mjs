@@ -44,7 +44,8 @@ test("the outcome is written even inside the throttle window, and closes the dis
   await h.status.setStage("reviewing");
   await h.status.finish("review composed", "request_changes, 3 inline comment(s)");
   assert.equal(h.sent.length, 2, "a terminal state is never dropped by the throttle");
-  assert.match(h.sent[1], /^<b>review composed<\/b>/);
+  assert.match(h.sent[1], /^<b>Reviewing acme\/svc#7<\/b>/, "the outcome still names the pull request");
+  assert.match(h.sent[1], /\n<b>review composed<\/b>/);
   assert.match(h.sent[1], /request_changes, 3 inline comment\(s\)/);
 
   h.advance(60_000);
@@ -72,6 +73,28 @@ test("identical text is not rewritten", async () => {
   await h.status.progress({ phase: "thinking" });
   await h.status.progress({ phase: "thinking" });
   assert.equal(h.sent.length, 1);
+});
+
+test("a pull request url turns the title into a link", async () => {
+  const sent = [];
+  let clock = 0;
+  const status = createRunStatus({
+    send: async (text) => sent.push(text),
+    title: "Reviewing acme/svc#7",
+    prUrl: "https://github.com/acme/svc/pull/7",
+    everyMs: 0,
+    now: () => clock,
+    startedAt: clock,
+  });
+  status.note("head 948ed420 on govulncheck/auto-fix");
+  await status.setStage("reviewing");
+  await status.finish("paused", "the inference server is busy");
+  assert.equal(sent.length, 2);
+  for (const text of sent) {
+    assert.match(text, /^<a href="https:\/\/github\.com\/acme\/svc\/pull\/7">Reviewing acme\/svc#7<\/a>$/m);
+    assert.match(text, /head 948ed420 on govulncheck\/auto-fix/);
+  }
+  assert.match(sent[1], /<b>paused<\/b>/);
 });
 
 test("html met a title or stage came from is escaped", async () => {

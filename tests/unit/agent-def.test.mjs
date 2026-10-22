@@ -34,3 +34,15 @@ test("the contract tells the review which notice opens and which closes", () => 
   assert.match(single, /opening line, before your findings:/);
   assert.doesNotMatch(single, /closing line, after your findings:/);
 });
+
+test("a task gate message links the pull request it answers", async () => {
+  const { taskGateSummary } = await import("../../src/review-run.mjs");
+  const { summaryHtml } = await import("../../src/gate/telegram-format.mjs");
+  const summary = taskGateSummary({
+    pr: { html_url: "https://github.com/acme/svc/pull/70", repository: "acme/svc", number: 70, title: "fix: govulncheck findings" },
+    headSha: "948ed420abcdef0123456789",
+  });
+  assert.equal(summary.split("\n")[0], "PR: https://github.com/acme/svc/pull/70");
+  assert.match(summary, /Review requested for acme\/svc#70 at 948ed420: fix: govulncheck findings/);
+  assert.match(summaryHtml(summary, { comments: [], maxFindings: 0 }), /^<a href="https:\/\/github\.com\/acme\/svc\/pull\/70">acme\/svc#70<\/a>$/m);
+});

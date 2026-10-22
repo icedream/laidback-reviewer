@@ -16,15 +16,21 @@ const escape = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/</
  * @param everyMs minimum gap between rewrites; terminal states ignore it
  * @param budgetMs the wall clock one review may take, shown so a slow run reads as slow rather than stuck
  */
-export function createRunStatus({ send, title, everyMs = 20_000, budgetMs = 0, log = () => {}, now = () => Date.now(), startedAt = now() }) {
+export function createRunStatus({ send, title, prUrl = "", everyMs = 20_000, budgetMs = 0, log = () => {}, now = () => Date.now(), startedAt = now() }) {
   let stage = "starting";
   let note = "";
   let lastSentAt = 0;
   let lastText = "";
   let closed = false;
 
+  // Every rewrite carries the pull request it belongs to: a chat with several gates must not leave a
+  // reader guessing which review said "paused".
+  function titleLine() {
+    return prUrl ? `<a href="${escape(prUrl)}">${escape(title)}</a>` : `<b>${escape(title)}</b>`;
+  }
+
   function render(state = {}) {
-    const lines = [`<b>${escape(title)}</b>`];
+    const lines = [titleLine()];
     if (note) lines.push(escape(note));
     lines.push("");
     lines.push(`Now: ${escape(stage)}`);
@@ -51,10 +57,13 @@ export function createRunStatus({ send, title, everyMs = 20_000, budgetMs = 0, l
   }
 
   return {
-    /** One line of context under the title, e.g. the head or the branch. */
+    /** One line of context under the title, e.g. the head and branch. Carried by the next write. */
     note(text) {
       note = text;
-      return push(render());
+    },
+    /** The pull request to link, known only once it has been fetched. */
+    setUrl(url) {
+      prUrl = url;
     },
     setStage(text, state) {
       stage = text;
@@ -67,7 +76,9 @@ export function createRunStatus({ send, title, everyMs = 20_000, budgetMs = 0, l
     },
     /** The last word on this message: always sent, and nothing after it is. */
     finish(text, detail = "") {
-      const lines = [`<b>${escape(text)}</b>`];
+      const lines = [titleLine()];
+      if (note) lines.push(escape(note));
+      lines.push("", `<b>${escape(text)}</b>`);
       if (detail) lines.push(escape(detail));
       lines.push(escape(`elapsed ${elapsedLabel(now(), startedAt)}${budgetMs ? ` of ${elapsedLabel(startedAt + budgetMs, startedAt)}` : ""}`));
       const sent = push(lines.join("\n"), { force: true });

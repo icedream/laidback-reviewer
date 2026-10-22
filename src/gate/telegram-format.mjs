@@ -48,7 +48,12 @@ export function summaryHtml(summary, { comments = [], maxFindings = 0 } = {}) {
 
   const out = kept.map((line) => {
     const pr = /^PR: (https?:\/\/\S+)$/.exec(line);
-    if (pr) return `<a href="${pr[1]}">pull request</a>`;
+    if (pr) {
+      // The link carries the name, so the message reads like the pull request rather than a bare target.
+      const named = /\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)/.exec(pr[1]);
+      const label = named ? `${named[1]}/${named[2]}#${named[3]}` : "pull request";
+      return `<a href="${pr[1]}">${label}</a>`;
+    }
     if (line.startsWith("Model verdict:")) return `<b>${withCodeRefs(escapeHtml(line))}</b>`;
     return withCodeRefs(escapeHtml(line));
   });

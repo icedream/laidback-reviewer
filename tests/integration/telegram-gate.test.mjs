@@ -88,7 +88,7 @@ test("a gate arrives as one message with buttons, and its message id is recorded
     const sent = f.telegram.messages.at(-1);
     assert.equal(sent.parse_mode, "HTML");
     assert.equal(sent.disable_notification, false);
-    assert.match(sent.text, /^<a href="https:\/\/github\.com\/acme\/svc\/pull\/71">pull request<\/a>$/m);
+    assert.match(sent.text, /^<a href="https:\/\/github\.com\/acme\/svc\/pull\/71">acme\/svc#71<\/a>$/m);
     assert.match(sent.text, /<b>Model verdict: request_changes/);
     assert.match(sent.text, /<code>go\.mod:7<\/code>/);
     assert.doesNotMatch(sent.text, /Inline comments \(2\)/);

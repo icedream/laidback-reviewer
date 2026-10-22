@@ -28,7 +28,7 @@ test("the gate message links the PR, bolds the verdict and lists findings by pos
     "  internal/api/pagination.go:20-44 — and this one too",
   ].join("\n");
   const text = summaryHtml(summary, { comments, maxFindings: 8 });
-  assert.match(text, /^<a href="https:\/\/github\.com\/acme\/svc\/pull\/71">pull request<\/a>\n/);
+  assert.match(text, /^<a href="https:\/\/github\.com\/acme\/svc\/pull\/71">acme\/svc#71<\/a>\n/);
   assert.match(text, /<b>Model verdict: request_changes → policy action: submit/);
   assert.match(text, /1\. <code>go\.mod:7<\/code> Sarama raised DefaultVersion/);
   assert.match(text, /2\. <code>internal\/api\/pagination\.go:20-23<\/code>/);
@@ -82,4 +82,15 @@ test("finding buttons are numbered in rows of five", () => {
 test("the toast says what the tap did", () => {
   assert.equal(toastFor("approved"), "approved");
   assert.equal(toastFor("held"), "on hold");
+});
+
+test("the PR line of a summary becomes a link that carries its name", () => {
+  const summary = ["PR: https://github.com/acme/svc/pull/70", "Review requested for acme/svc#70 at 948ed420: fix: govulncheck findings"].join("\n");
+  const html = summaryHtml(summary, { comments: [], maxFindings: 0 });
+  assert.match(html, /^<a href="https:\/\/github\.com\/acme\/svc\/pull\/70">acme\/svc#70<\/a>$/m);
+  assert.match(html, /Review requested for acme\/svc#70 at 948ed420/);
+
+  // A url that is not a pull request link still links, under a plain label.
+  const odd = summaryHtml("PR: https://example.invalid/thing", { comments: [], maxFindings: 0 });
+  assert.match(odd, /^<a href="https:\/\/example\.invalid\/thing">pull request<\/a>$/m);
 });

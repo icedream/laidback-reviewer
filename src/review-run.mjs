@@ -28,6 +28,14 @@ import { createGate, renderGateSummary } from "./gate/gate.mjs";
 import { writeArtifact } from "./proposal/artifact.mjs";
 import { composeReview, planBanner } from "./proposal/policy.mjs";
 
+/** The task gate names the pull request and links it, so the message says which review it belongs to. */
+export function taskGateSummary({ pr, headSha }) {
+  return [
+    `PR: ${pr.html_url}`,
+    `Review requested for ${pr.repository}#${pr.number} at ${String(headSha).slice(0, 8)}: ${pr.title}`,
+  ].join("\n");
+}
+
 export function toPrView(json, { owner, repo }) {
   return {
     number: json.number,
@@ -60,6 +68,8 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
       ? createRunStatus({
           send: (text) => transport.status(task.statusGateId, text),
           title: `Reviewing ${owner}/${repo}#${prNumber}`,
+          // The canonical url is known before the fetch; the fetched one replaces it if GitHub disagrees.
+          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
           everyMs: cfg.logging.statusEveryMs,
           budgetMs: cfg.reviews.budgetMs,
           log,
@@ -69,6 +79,8 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   const prJson = await client.getPull(owner, repo, prNumber);
   const pr = toPrView(prJson, { owner, repo });
   const headSha = pr.head.sha;
+  runStatus?.setUrl(pr.html_url);
+  runStatus?.note(`head ${headSha.slice(0, 8)} on ${pr.head.ref ?? "?"}`);
 
   if (pr.draft && cfg.trigger.skipDraft) {
     return { skipped: "draft", pr };
@@ -88,7 +100,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
           reviewId: null,
           target,
           requestTs: task.requestTs ?? null,
-          summary: `Review requested for ${pr.repository}#${pr.number} at ${headSha.slice(0, 8)}: ${pr.title}`,
+          summary: taskGateSummary({ pr, headSha }),
         });
         return { skipped: "gate_queued", gate: preGate, pr };
       }
