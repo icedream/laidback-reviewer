@@ -37,13 +37,23 @@ const allowed = [
   ],
   ["fetching a toolchain the image does not carry", "curl -sL https://github.com/golangci/golangci-lint/releases/download/v2.12.2/golangci-lint-2.12.2-linux-amd64.tar.gz -o /work/tools/dl.tgz && tar -xzf /work/tools/dl.tgz -C /work/tools"],
   ["a manifest edited in a copy", "cd /work/scratch/x && sed -i 's/x/net v0.58/x/net v0.60/' go.mod && go build ./..."],
+  [
+    "a test merge in a scratch copy reads the conflict the PR would create",
+    "cd /work/scratch/tidy48 && git merge --no-commit origin/main >/dev/null 2>&1; grep -c '<<<<<<<' go.mod",
+  ],
+  ["clearing its own scratch directory", "rm -rf /work/scratch/main48 && mkdir -p /work/scratch/main48 && cd /work/scratch/main48 && git status"],
+  ["a scratch throwaway can be committed to", "cd /work/scratch/x && git commit -am 'experiment'"],
 ];
 
 const blocked = [
   ["git push", "git push origin main"],
-  ["git commit", "cd /work/scratch/x && git commit -am 'fix'"],
-  ["git merge", "cd /work/scratch/x && git merge origin/main"],
-  ["git rebase", "cd /work/scratch/x && git rebase main"],
+  ["git commit in the tree under review", "cd /work/repos/acme/svc && git commit -am 'fix'"],
+  ["git merge in the tree under review", "cd /work/repos/acme/svc && git merge origin/main"],
+  ["deleting the checkout", "rm -rf /work/repos/acme/svc"],
+  ["deleting the review records", "rm -rf /data/reviews"],
+  ["deleting from the root", "rm -rf /"],
+  ["a recursive delete with no path says nothing about intent", "rm -rf"],
+  ["git rebase in the tree under review", "cd /work/repos/acme/svc && git rebase main"],
   ["gh pr merge", "gh pr merge 48 --squash"],
   ["gh pr review", "gh pr review 48 --approve"],
   ["helm upgrade", "helm upgrade orders-api ./charts/orders-api"],

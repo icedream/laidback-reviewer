@@ -19,8 +19,29 @@ const BASH_DENY = [
   { re: /\bgh\s+api\b[^|;&]*(--input|-X\s*(POST|PUT|PATCH|DELETE)|--method\s+(POST|PUT|PATCH|DELETE))/, reason: "gh api writes are not permitted" },
   { re: /(^|[|;&(]\s*)(sudo\s+)?(kubectl|helm|docker|podman|terraform|ansible|ssh|scp)\s/, reason: "deploy and remote-access tools are not available to a review run" },
   { re: /(^|[|;&(]\s*)(npm\s+publish|go\s+mod\s+(tidy|vendor)|pip\s+install|apt(-get)?\s+install)\b/, reason: "supply-chain and package-manager writes are not permitted" },
-  { re: /\brm\s+-rf\b(?![^|;]*\/tmp)/, reason: "recursive delete is limited to /tmp" },
 ];
+
+// A recursive delete is judged by what it deletes rather than by the flag: the scratch area is the
+// agent's own, and clearing it is normal, while anything holding a review or a credential is not.
+const PROTECTED_ROOTS = ["/", "/app", "/etc", "/usr", "/var", "/bin", "/sbin", "/root", "/home", "/data"];
+
+function recursiveDeleteDenied(command, { writableRoots, checkoutDir }) {
+  for (const call of command.matchAll(/(^|[|;&(]\s*)rm\s+([^|;&]*)/g)) {
+    const parts = call[2].trim().split(/\s+/).filter(Boolean);
+    const flags = parts.filter((part) => part.startsWith("-")).join("");
+    if (!/[rR]/.test(flags)) continue;
+    const targets = parts.filter((part) => !part.startsWith("-"));
+    if (!targets.length) return true;
+    const dir = cdTargetsBefore(command, call.index).at(-1) ?? "";
+    for (const target of targets) {
+      const resolved = target.startsWith("/") ? target : dir ? `${dir}/${target}` : target;
+      if (PROTECTED_ROOTS.includes(resolved)) return true;
+      if (checkoutDir && (resolved === checkoutDir || resolved.startsWith(`${checkoutDir}/`))) return true;
+      if (!inScratch(resolved, { writableRoots, checkoutDir })) return true;
+    }
+  }
+  return false;
+}
 
 // Notes and scratch records often quote the commands they are talking about, so a heredoc body is not
 // a command.
@@ -35,6 +56,9 @@ function stripHeredocs(command) {
 const WORKSPACE_SCOPED = new Set([
   "supply-chain and package-manager writes are not permitted",
   "writing a dependency manifest is not permitted; propose the change instead",
+  // A test merge in a scratch copy is how a review reads the conflict a PR would create, which is a
+  // question about the branch rather than a change to it.
+  "git history changes are not permitted",
 ]);
 
 function cdTargetsBefore(command, position) {
@@ -120,6 +144,9 @@ export function createReviewGuard({ allowHosts = [], bashEnabled = true, writabl
         }
         if (manifestWriteDenied(runnable, scratchOpts)) {
           return block({ tool: "bash", command, reason: "writing a dependency manifest is not permitted; propose the change instead" });
+        }
+        if (recursiveDeleteDenied(runnable, scratchOpts)) {
+          return block({ tool: "bash", command, reason: "a recursive delete may only remove paths inside the writable scratch roots" });
         }
         if (/\b(curl|wget)\b/.test(command)) {
           const reason = hostAllowDenied(command, allowHosts);
