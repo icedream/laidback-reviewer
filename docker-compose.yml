@@ -26,6 +26,10 @@ services:
       - SLACK_MCP_XOXB_TOKEN
       - SLACK_MCP_XOXC_TOKEN
       - SLACK_MCP_XOXD_TOKEN
+      - GONOSUMDB
+      - GOPATH
+      - GOPRIVATE
+      - GOSUMDB
     working_dir: /app
     command: ["node", "src/index.mjs"]
     volumes:
