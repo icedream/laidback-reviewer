@@ -105,3 +105,13 @@ test("a re-review is named, so the model reports what changed instead of repeati
   assert.match(prompt, /Re-review: the review was requested again at 2026-04-03T11:24:00Z[\s\S]*earlier pass of this[\s\S]*same head at 2026-04-01T00:00:00.000Z/);
   assert.match(prompt, /say what has changed since, and whether the earlier concerns still stand/);
 });
+
+test("a resumed run is told it is continuing, not starting over", () => {
+  const withResume = buildTaskPrompt({ pr, files, checkoutDir: "/work/scratch/acme-svc-7-abcdef01", headSha: pr.head.sha, resume: { at: "2026-04-04T09:00:00.000Z", sessionFile: "/data/sessions/run-1.jsonl" } });
+  assert.match(withResume, /Resumed run/);
+  assert.match(withResume, /continue/, "the point of the fork is to carry on");
+  assert.match(withResume, /re-run any command/, "the scratch tree behind the old turns is gone");
+
+  const plain = buildTaskPrompt({ pr, files, checkoutDir: "/work/scratch/acme-svc-7-abcdef01", headSha: pr.head.sha });
+  assert.doesNotMatch(plain, /Resumed run/);
+});

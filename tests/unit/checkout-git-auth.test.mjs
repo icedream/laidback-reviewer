@@ -11,6 +11,23 @@ import path from "node:path";
 import test from "node:test";
 import { configureGitAuth, credentialHelperArgs } from "../../src/checkout.mjs";
 
+test("a gitconfig left over from an older run is repaired, not kept", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "laidback-gitauth-stale-"));
+  const file = path.join(dir, "gitconfig");
+  // What an earlier version wrote: the key kept in the value, so git execs a helper named after it.
+  fs.writeFileSync(file, "[credential]\n\thelper = credential.helper=!f(){ echo username=x; };f\n");
+  try {
+    configureGitAuth({ cfg: { github: { tokenEnv: "LAIDBACK_GH_TOKEN" }, checkout: { gitConfig: file } }, log() {} });
+    const written = fs.readFileSync(file, "utf8");
+    assert.match(written, /helper = !f\(\)/, "the value is the command, not key=value");
+    assert.ok(!/helper = credential\.helper=/.test(written));
+    const [, helperValue] = credentialHelperArgs("LAIDBACK_GH_TOKEN");
+    assert.ok(written.includes(helperValue.replace(/^credential\.helper=/, "")), "the helper is exactly what this run would have written");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("the helper is two arguments and names the variable, never the token", () => {
   const [flag, assignment] = credentialHelperArgs("LAIDBACK_GH_TOKEN");
 

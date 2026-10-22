@@ -128,11 +128,14 @@ export function configureGitAuth({ cfg, dir, log = () => {} }) {
   // `git clone`, or a tool the repository's own Makefile calls.
   process.env.GIT_CONFIG_GLOBAL = path.resolve(cfg.checkout.gitConfig || ".pi/gitconfig");
   fs.mkdirSync(path.dirname(process.env.GIT_CONFIG_GLOBAL), { recursive: true });
-  if (!fs.existsSync(process.env.GIT_CONFIG_GLOBAL)) {
-    fs.writeFileSync(
-      process.env.GIT_CONFIG_GLOBAL,
-      `[credential]\n\thelper = ${helper}\n[url "https://github.com/"]\n\tinsteadOf = git@github.com:\n`,
-    );
+  const desired = `[credential]\n\thelper = ${helper}\n[url "https://github.com/"]\n\tinsteadOf = git@github.com:\n`;
+  // Rewrite whenever the file disagrees with this run's token variable. A file left over from an older
+  // version of the harness would otherwise keep a malformed helper, and git then tries to exec
+  // `git credential-credential.helper=...` for every shell-out that needs credentials.
+  const current = fs.existsSync(process.env.GIT_CONFIG_GLOBAL) ? fs.readFileSync(process.env.GIT_CONFIG_GLOBAL, "utf8") : null;
+  if (current !== desired) {
+    fs.writeFileSync(process.env.GIT_CONFIG_GLOBAL, desired);
+    if (current !== null) log(`git auth: rewrote ${process.env.GIT_CONFIG_GLOBAL}, its credential helper did not match this run`);
   }
   // A clone-mode run configures auth before cloning, so the checkout directory may not be a repository
   // yet; setting local config there fails, and the global file already carries the same settings.

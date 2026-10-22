@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS deferrals (
   head_sha TEXT NOT NULL,
   until_at TEXT NOT NULL,
   reason TEXT,
+  session_file TEXT,
   updated_at TEXT NOT NULL,
   PRIMARY KEY (owner, repo, pr, head_sha)
 );
@@ -137,6 +138,11 @@ export function openStore(path) {
   } catch {
     // present already
   }
+  try {
+    db.exec("ALTER TABLE deferrals ADD COLUMN session_file TEXT");
+  } catch {
+    // present already
+  }
   return createStore(db);
 }
 
@@ -187,9 +193,10 @@ export function createStore(db) {
     ),
     clearFailure: db.prepare(`DELETE FROM failures WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha`),
     upsertDeferral: db.prepare(
-      `INSERT INTO deferrals (owner, repo, pr, head_sha, until_at, reason, updated_at)
-       VALUES (@owner, @repo, @pr, @head_sha, @until_at, @reason, @now)
-       ON CONFLICT (owner, repo, pr, head_sha) DO UPDATE SET until_at = @until_at, reason = @reason, updated_at = @now`,
+      `INSERT INTO deferrals (owner, repo, pr, head_sha, until_at, reason, session_file, updated_at)
+       VALUES (@owner, @repo, @pr, @head_sha, @until_at, @reason, @session_file, @now)
+       ON CONFLICT (owner, repo, pr, head_sha)
+       DO UPDATE SET until_at = @until_at, reason = @reason, session_file = @session_file, updated_at = @now`,
     ),
     deferralFor: db.prepare(`SELECT * FROM deferrals WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha`),
     activeDeferrals: db.prepare(`SELECT * FROM deferrals WHERE until_at > @now ORDER BY until_at`),
@@ -242,8 +249,8 @@ export function createStore(db) {
     recordFailure: (row) => statements.upsertFailure.run({ ...row, now: row.now ?? now() }),
     clearFailure: (key) => statements.clearFailure.run(key),
     /** A head set aside because the model server was occupied, not because the review failed. */
-    deferHead({ owner, repo, pr, head_sha, until_at, reason }) {
-      statements.upsertDeferral.run({ owner, repo, pr, head_sha, until_at, reason: reason ?? null, now: now() });
+    deferHead({ owner, repo, pr, head_sha, until_at, reason, sessionFile = null }) {
+      statements.upsertDeferral.run({ owner, repo, pr, head_sha, until_at, reason: reason ?? null, session_file: sessionFile, now: now() });
     },
     deferralFor: (key) => statements.deferralFor.get(key),
     activeDeferrals: () => statements.activeDeferrals.all({ now: now() }),

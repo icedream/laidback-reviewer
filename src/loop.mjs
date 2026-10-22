@@ -92,7 +92,7 @@ export async function cycle({
         store,
         client,
         slack,
-        task: { owner: candidate.owner, repo: candidate.repo, pr: candidate.pr, checkoutDir: checkout.dir, compareDir: checkout.compareDir, runId: checkout.runId, reRequest: candidate.reRequest ?? null, requestTs: candidate.requestTs ?? null },
+        task: { owner: candidate.owner, repo: candidate.repo, pr: candidate.pr, checkoutDir: checkout.dir, compareDir: checkout.compareDir, runId: checkout.runId, reRequest: candidate.reRequest ?? null, requestTs: candidate.requestTs ?? null, resumeSessionFile: deferral?.session_file ?? null, resumedAt: deferral?.until_at ?? "" },
         piAgentDir,
         artifactDir,
         log,
@@ -106,7 +106,7 @@ export async function cycle({
         // Nothing about the PR went wrong, so the head is put back for later instead of burning an
         // attempt: a shared inference slot must not park a review that was never run.
         const until = new Date(Date.now() + cfg.agent.model.deferMs).toISOString();
-        store.deferHead({ ...key, until_at: until, reason: error.message });
+        store.deferHead({ ...key, until_at: until, reason: error.message, sessionFile: error.sessionFile ?? null });
         log(`    deferred: ${error.message}, retry after ${until.slice(11, 16)}`);
         continue;
       }

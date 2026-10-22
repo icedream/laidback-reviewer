@@ -5,7 +5,7 @@
 
 import { commentableLines } from "../github/anchoring.mjs";
 
-export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, reRequest = null, context = null, compareDir = null, lint = null, writableRoots = [], allowHosts = [] }) {
+export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, reRequest = null, context = null, compareDir = null, lint = null, resume = null, writableRoots = [], allowHosts = [] }) {
   const sections = [];
 
   sections.push(`Review pull request #${pr.number} in ${pr.repository}.`);
@@ -86,6 +86,17 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, r
         `Re-review: the review was requested again at ${reRequest.askedAt}, after an earlier pass of this`,
         `same head at ${reRequest.handledAt}. The entries above include that pass, so repeating them adds`,
         `nothing: say what has changed since, and whether the earlier concerns still stand.`,
+      ].join("\n"),
+    );
+  }
+
+  if (resume) {
+    sections.push(
+      [
+        `Resumed run: an earlier pass of this review was interrupted${resume.at ? ` at ${resume.at}` : ""}`,
+        `because the inference server was occupied. Its transcript is part of this session, so continue`,
+        "where it stopped rather than repeating finished steps. Its scratch and comparison directories are",
+        "gone: re-run any command whose output you quote, and do not rely on results you cannot reproduce.",
       ].join("\n"),
     );
   }

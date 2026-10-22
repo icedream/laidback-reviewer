@@ -62,25 +62,27 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   const files = await client.listFiles(owner, repo, prNumber);
   const gate = createGate({ cfg, store, log, slack });
   const target = { owner, repo, pr: prNumber, head_sha: headSha };
-  // The gate answers one review request, identified by that event's timestamp, so approving it releases
-  // this head once and a later request is what asks again.
-  const taskGate = gate.priorDecision({ stage: "before_review", target, askedAt: task.requestTs ?? "" });
-  if (!taskGate.proceed) {
-    if (taskGate.kind === "none" || taskGate.kind === "re-requested") {
-      const preGate = await gate.open({
-        stage: "before_review",
-        reviewId: null,
-        target,
-        requestTs: task.requestTs ?? null,
-        summary: `Review requested for ${pr.repository}#${pr.number} at ${headSha.slice(0, 8)}: ${pr.title}`,
-      });
-      return { skipped: "gate_queued", gate: preGate, pr };
+  if (gate.requiresApproval("before_review")) {
+    // The gate answers one review request, identified by that event's timestamp: approving it releases this
+    // head once, and only a later request asks again.
+    const taskGate = gate.priorDecision({ stage: "before_review", target, askedAt: task.requestTs ?? "" });
+    if (!taskGate.proceed) {
+      if (taskGate.kind === "none" || taskGate.kind === "re-requested") {
+        const preGate = await gate.open({
+          stage: "before_review",
+          reviewId: null,
+          target,
+          requestTs: task.requestTs ?? null,
+          summary: `Review requested for ${pr.repository}#${pr.number} at ${headSha.slice(0, 8)}: ${pr.title}`,
+        });
+        return { skipped: "gate_queued", gate: preGate, pr };
+      }
+      log(`task gate ${taskGate.gateId} is ${taskGate.kind} for this head; the review does not run`);
+      return { skipped: `gate_${taskGate.kind}`, gate: taskGate, pr };
     }
-    log(`task gate ${taskGate.gateId} is ${taskGate.kind} for this head; the review does not run`);
-    return { skipped: `gate_${taskGate.kind}`, gate: taskGate, pr };
+    log(`task gate ${taskGate.gateId} answers this request: running the review`);
+    approvedTaskGate = taskGate.gateId;
   }
-  log(`task gate ${taskGate.gateId} answers this request: running the review`);
-  approvedTaskGate = taskGate.gateId;
 
   const [reviews, comments] = await Promise.all([
     client.listReviews(owner, repo, prNumber),
@@ -144,6 +146,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     writableRoots,
     allowHosts: cfg.tools.allowHosts,
     lint: lint.mode === "off" ? null : lint,
+    resume: task.resumeSessionFile ? { at: task.resumedAt ?? "", sessionFile: task.resumeSessionFile } : null,
     context: context.matched ? { description: context.description, instructions: context.instructions } : null,
   });
 
@@ -163,8 +166,11 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   }
   if (cfg.logging.level === "debug") log(`debug: model queue free (${queue.source}${queue.phase ? `, ${queue.phase}` : ""})`);
 
-  const sessionManager =
-    context.matched && context.mode === "fork" && cfg.context.sessionDir
+  // A head deferred because the inference slot was taken comes back to the session where it had already
+  // read the diff. Forking that transcript is what keeps a deferral from restarting the review.
+  const sessionManager = task.resumeSessionFile && cfg.context.sessionDir
+    ? SessionManager.forkFrom(task.resumeSessionFile, checkoutDir, cfg.context.sessionDir)
+    : context.matched && context.mode === "fork" && cfg.context.sessionDir
       ? SessionManager.forkFrom(context.review.session_file, checkoutDir, cfg.context.sessionDir)
       : cfg.context.sessionDir
         ? SessionManager.create(checkoutDir, cfg.context.sessionDir)
@@ -201,7 +207,16 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
       log(`debug: checkout ${checkoutDir}, comparison ${compareDir}, linter ${lint.mode}${lint.requestedVersion ? ` ${lint.requestedVersion}` : " (image)"}`);
       log(`debug: context ${context.matched ? `${context.mode} from #${context.review.pr} (${context.kind})` : `none (${context.reason})`}`);
     }
-    busyRetriesUsed = await promptWithModelRetry({ session, cfg, collector, prompt, log, probe: modelProbe });
+    try {
+      busyRetriesUsed = await promptWithModelRetry({ session, cfg, collector, prompt, log, probe: modelProbe });
+    } catch (error) {
+      if (error?.name === "ModelBusyError") {
+        // The loop defers the head, and the next pass resumes from this transcript only if the run hands
+        // it over before unwinding.
+        error.sessionFile = session.sessionManager?.getSessionFile?.() ?? null;
+      }
+      throw error;
+    }
   } finally {
     // A cancelled or failed turn must leave nothing armed: a heartbeat that outlives the run keeps the
     // process alive and prints "still working" forever.
