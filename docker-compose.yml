@@ -63,7 +63,9 @@ services:
     # network_mode: host
     read_only: true
     tmpfs:
-      - /tmp
+      # Docker mounts tmpfs noexec, but a review unpacks a fetched tool or runs a scratch binary under
+      # /tmp, and that has to behave here the way it does on a host.
+      - /tmp:mode=1777,exec
       - /home/node/.cache
     cap_drop:
       - ALL
