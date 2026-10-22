@@ -162,8 +162,38 @@ test("banner rephrase keeps the configured text when the answer is not a rewrite
   }
 });
 
+test("a review that wrote its own notice gets that block reworded, not a second notice", async () => {
+  const env = await setupReviewRun({
+    overrides: {
+      reviews: { dryRun: false },
+      banner: { mode: "authored", prefix: "Automated review: this pass was written by the repo's review bot, not by hand.", rephrasePrefix: true },
+      gate: { channel: "none", beforePost: false },
+    },
+    turns: (fixture, dir) => [
+      ...reviewScript({ fixture, scratchDir: dir }).map((message) => ({
+        ...message,
+        tool_calls: message.tool_calls?.map((call) =>
+          call.name === "review_propose_body" ? { ...call, args: { ...call.args, body: "An automated reviewer wrote this pass rather than a person.\n\n" + call.args.body } } : call,
+        ),
+      })),
+      // The answer to the rewording request arrives as the next turn of the same scripted model.
+      { content: "prefix: This pass came from the repo's review bot rather than from a person at a keyboard." },
+    ],
+  });
+  try {
+    await env.run();
+    const [review] = env.github.postedReviews();
+    assert.match(env.log(), /the review wrote its own prefix notice, asking for one sentence to replace it/);
+    assert.ok(review.body.startsWith("This pass came from the repo's review bot rather than from a person at a keyboard."), review.body.slice(0, 160));
+    assert.ok(!review.body.includes("Automated review: this pass was written by the repo's review bot, not by hand."), "the configured sentence was not added beside it");
+    assert.ok(!review.body.includes("An automated reviewer wrote this pass rather than a person."), "the block it replaces is gone");
+  } finally {
+    env.close();
+  }
+});
+
 test("a review that pastes the configured notice sends it to the rewording pass", async () => {
-  const notice = "I'm on leave this week; the bot answers meanwhile.";
+  const notice = "Automated review: this pass was written by the repo's review bot, not by hand.";
   const env = await setupReviewRun({
     overrides: {
       reviews: { dryRun: false },

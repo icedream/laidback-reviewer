@@ -75,9 +75,9 @@ export function nonInteractiveContract({ cfg, checkoutDir, prRef }) {
             ? ["  These are two different notices: one introduces the review, the other closes it. Writing",
                "  one does not cover the other."]
             : []),
-          "  The harness fills a notice verbatim only where your body does not carry it in that place, so",
-          "  the author does not have to read it twice. A sentence pasted word for word costs a separate",
-          "  model call to reword before the review posts.",
+          "  The harness fills a notice verbatim only where your body does not carry it in that place, and",
+          "  a notice you wrote yourself is never added again beside it: at most that block is reworded by",
+          "  one model call before posting.",
         ]
       : []),
     "- The harness re-resolves the head SHA, derives commentable ranges from the API's own diff, and",

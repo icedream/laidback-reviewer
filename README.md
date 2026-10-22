@@ -107,20 +107,24 @@ anchor the harness had to repair.
 
 ```yaml
 banner:
-  prefix: "I'm on leave this week; this review is the bot."              # intro: opens the body
+  prefix: "Automated review: this pass was written by the repo's review bot."   # intro: opens the body
   suffix: "<sub>This review was performed by a local AI bot.</sub>"      # outro: closes it
   mode: authored           # authored = the review writes both notices; appended = always stitched on
-  rephrasePrefix: false    # reword only a notice the harness had to supply
+  rephrasePrefix: false    # reword the intro in place, whoever wrote it
   rephraseSuffix: false    # a markup footer stays exactly as configured
 ```
 
 In authored mode each notice is judged only in its own place: the intro against the opening block of the
 body, the outro against the closing block. A review that opens with the outro wording is still asked for an
 outro, since one notice does not answer for the other. A body of a single block has no position to judge,
-so it is read as a whole. A notice the review left out is added verbatim, and the record says which one
-was missing. A notice copied out of the config word for word is judged separately: the review is not blamed
-for omitting it, but with rephrasing on that sentence goes to the model for rewording, since pasting the
-configured line is not the review speaking in its own words.
+so it is read as a whole.
+
+Carrying a notice means stating it there, not using the configured words: a restatement that keeps the
+claims shares few of them by design, and it counts. So a disclosure appears at most once. Where the review
+left the place empty the configured sentence is added, and the record says which one was missing. Where the
+review wrote its own, or pasted the configured sentence, nothing is added beside it; with rephrasing on,
+that block is offered to the model and replaced by one sentence if the rewrite holds up, or left exactly as
+the review wrote it if not.
 
 `rephrase` was one flag for both lines; it is now `rephrasePrefix` and `rephraseSuffix`, and the old key
 is still translated with a note at startup. With rephrasing on, the rewrite is checked against the

@@ -36,7 +36,7 @@ banner:
   # authored: the review writes both notices in their own places; each is checked only against the block
   # it belongs to, so an intro never answers for an outro. appended always stitches both on.
   mode: authored
-  rephrasePrefix: false             # reword a notice the harness had to supply
+  rephrasePrefix: false             # reword the intro in place, whether the review or the harness wrote it
   rephraseSuffix: false             # a markup footer stays exactly as configured
 
 logging:

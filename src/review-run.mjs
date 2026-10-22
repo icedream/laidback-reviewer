@@ -324,19 +324,34 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   // Authored banner: the review was told to carry the notice, so only a slot it left out is supplied here,
   // and a supplied slot is reworded only when its own flag asks for it.
   const bannerPlan = planBanner({ cfg, proposal });
-  const toRephrase = Object.fromEntries(
-    bannerPlan.supplied
-      .filter((slot) => (slot === "prefix" ? cfg.banner.rephrasePrefix : cfg.banner.rephraseSuffix))
-      .map((slot) => [slot, bannerPlan[slot]]),
-  );
-  let banner = bannerPlan;
+  const wantsRewrite = (slot) => (slot === "prefix" ? cfg.banner.rephrasePrefix : cfg.banner.rephraseSuffix);
+  const toRephrase = Object.fromEntries(bannerPlan.supplied.filter(wantsRewrite).map((slot) => [slot, bannerPlan[slot]]));
+  let banner = { ...bannerPlan, reworded: [] };
   if (Object.keys(toRephrase).length) {
     if (bannerPlan.verbatim.length) log(`banner: the review pasted the ${bannerPlan.verbatim.join(", ")} notice, rewording it through the model`);
+    const ownWords = bannerPlan.inPlace.filter((slot) => !bannerPlan.verbatim.includes(slot));
+    if (ownWords.length) log(`banner: the review wrote its own ${ownWords.join(", ")} notice, asking for one sentence to replace it`);
     try {
-      const rephrased = await rephraseBanner({ cfg, agentDir: piAgentDir, cwd: checkoutDir, prRef: `${pr.repository}#${pr.number}`, slots: toRephrase, log });
-      banner = { ...bannerPlan, ...rephrased };
-      for (const slot of bannerPlan.verbatim) {
-        if (banner[slot] !== bannerPlan[slot]) notes.push(`banner: the ${slot} notice was reworded from the sentence the review had pasted`);
+      const rephrased = await rephraseBanner({
+        cfg,
+        agentDir: piAgentDir,
+        cwd: checkoutDir,
+        prRef: `${pr.repository}#${pr.number}`,
+        slots: toRephrase,
+        drafts: bannerPlan.draft,
+        log,
+      });
+      for (const slot of Object.keys(toRephrase)) {
+        const text = rephrased?.[slot] ?? bannerPlan[slot];
+        if (text !== bannerPlan[slot]) banner.reworded.push(slot);
+        banner[slot] = text;
+      }
+      for (const slot of bannerPlan.inPlace) {
+        if (banner.reworded.includes(slot)) {
+          notes.push(`banner: the ${slot} notice was reworded into one sentence in place${bannerPlan.verbatim.includes(slot) ? ", over the sentence the review had pasted" : ""}`);
+        } else {
+          notes.push(`banner: the review carried its own ${slot} notice, and it was left as written`);
+        }
       }
     } catch (error) {
       // A failed rewrite is a wording problem, not a reason to lose the review.
