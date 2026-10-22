@@ -4,7 +4,6 @@ A pull-request review bot. It watches for PRs assigned to your GitHub username, 
 agent against a checkout, and composes a review: body, inline comments with line ranges, and a
 verdict. Whether that verdict reaches GitHub is a configuration decision, not a model decision.
 
-
 ## What it can and cannot do
 
 Can: read assigned PRs, clone and build repositories read-only, run `go test`, `gofmt`,
