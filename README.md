@@ -107,14 +107,24 @@ anchor the harness had to repair.
 
 ```yaml
 banner:
-  prefix: "I'm on leave this week; this review is the bot."
-  suffix: "<sub>This review was performed by a local AI bot.</sub>"
-  rephrase: false   # one small model call rewrites the two lines for flow
+  prefix: "I'm on leave this week; this review is the bot."              # intro: opens the body
+  suffix: "<sub>This review was performed by a local AI bot.</sub>"      # outro: closes it
+  mode: authored           # authored = the review writes both notices; appended = always stitched on
+  rephrasePrefix: false    # reword only a notice the harness had to supply
+  rephraseSuffix: false    # a markup footer stays exactly as configured
 ```
 
-With `rephrase: true` the rewrite is checked against the configured text: no new verdict or merge
-word, no link, no mention, no markup, at most two lines, and some of the source wording kept. A
-rewrite that fails any of that is discarded and the configured lines are used.
+In authored mode each notice is judged only in its own place: the intro against the opening block of the
+body, the outro against the closing block. A review that opens with the outro wording is still asked for an
+outro, since one notice does not answer for the other. A body of a single block has no position to judge,
+so it is read as a whole. A notice the review left out is added verbatim, and the record says which one
+was missing.
+
+`rephrase` was one flag for both lines; it is now `rephrasePrefix` and `rephraseSuffix`, and the old key
+is still translated with a note at startup. With rephrasing on, the rewrite is checked against the
+configured text: no new verdict or merge word, no link, no mention, no markup, at most two lines, and some
+of the source wording kept. A rewrite that fails any of that is discarded and the configured lines are
+used.
 
 ## Which PRs trigger it
 

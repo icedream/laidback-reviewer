@@ -31,9 +31,11 @@ reviews:
     requestChanges: "Verdict: I would have requested changes."
 
 banner:
-  prefix: ""
-  suffix: "<sub>This review was performed by a local AI bot.</sub>"
-  mode: authored                    # authored = the review carries the notice, appended = always stitched on
+  prefix: ""                        # intro: opens the review body
+  suffix: "<sub>This review was performed by a local AI bot.</sub>"   # outro: closes it
+  # authored: the review writes both notices in their own places; each is checked only against the block
+  # it belongs to, so an intro never answers for an outro. appended always stitches both on.
+  mode: authored
   rephrasePrefix: false             # reword a notice the harness had to supply
   rephraseSuffix: false             # a markup footer stays exactly as configured
 

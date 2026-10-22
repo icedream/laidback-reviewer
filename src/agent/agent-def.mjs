@@ -66,12 +66,16 @@ export function nonInteractiveContract({ cfg, checkoutDir, prRef }) {
     "  review was posted. The harness decides whether a verdict reaches GitHub and words it.",
     ...(cfg.banner?.mode === "authored" && (cfg.banner.prefix || cfg.banner.suffix)
       ? [
-          "- The review body carries the disclosure itself, in your own wording, keeping every claim it makes",
-          "  and adding none:",
-          ...(cfg.banner.prefix ? [`  "${cfg.banner.prefix}"`] : []),
-          ...(cfg.banner.suffix ? [`  "${cfg.banner.suffix}"`] : []),
-          "  It normally belongs in the opening line. The harness supplies it verbatim only where your text",
-          "  does not carry it, and the author should not have to read it twice.",
+          "- The review body carries the disclosure itself, in your own wording, keeping every claim it",
+          "  makes and adding none. Each notice has its own place, and each is checked only there:",
+          ...(cfg.banner.prefix ? [`  opening line, before your findings: "${cfg.banner.prefix}"`] : []),
+          ...(cfg.banner.suffix ? [`  closing line, after your findings: "${cfg.banner.suffix}"`] : []),
+          ...(cfg.banner.prefix && cfg.banner.suffix
+            ? ["  These are two different notices: one introduces the review, the other closes it. Writing",
+               "  one does not cover the other."]
+            : []),
+          "  The harness fills a notice verbatim only where your body does not carry it in that place, so",
+          "  the author does not have to read it twice.",
         ]
       : []),
     "- The harness re-resolves the head SHA, derives commentable ranges from the API's own diff, and",

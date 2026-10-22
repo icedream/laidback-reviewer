@@ -149,3 +149,58 @@ test("an authored notice the review carries is not supplied twice", () => {
   assert.ok(always.prefix, "appended mode stitches regardless");
   assert.deepEqual(always.supplied, ["prefix", "suffix"]);
 });
+
+test("an intro notice and an outro notice are checked in their own places", () => {
+  const config = cfg();
+  config.banner = {
+    ...config.banner,
+    mode: "authored",
+    prefix: "I am on leave this week, the bot answers meanwhile.",
+    suffix: "Reply in the thread if you would like a human to look again.",
+  };
+
+  const both = planBanner({
+    cfg: config,
+    proposal: proposal({ body: "I am on leave this week and the bot answers meanwhile.\n\nThe decode error is swallowed, so a broken upstream looks like an empty list.\n\nReply in the thread if you would like a human to look again." }),
+  });
+  assert.deepEqual(both.missing, [], "each notice carried where it belongs");
+
+  const introOnly = planBanner({
+    cfg: config,
+    proposal: proposal({ body: "I am on leave this week and the bot answers meanwhile.\n\nThe decode error is swallowed." }),
+  });
+  assert.deepEqual(introOnly.missing, ["suffix"], "carrying the intro does not cover the outro");
+
+  const misplaced = planBanner({
+    cfg: config,
+    proposal: proposal({ body: "Reply in the thread if you would like a human to look again.\n\nThe decode error is swallowed." }),
+  });
+  assert.deepEqual(misplaced.missing.sort(), ["prefix", "suffix"], "outro words in the opening block answer for neither slot");
+
+  const oneBlock = planBanner({
+    cfg: config,
+    proposal: proposal({ body: "I am on leave this week and the bot answers meanwhile. Reply in the thread if you would like a human to look again." }),
+  });
+  assert.deepEqual(oneBlock.missing, [], "a body with one block has no position to judge, so it is read whole");
+});
+
+test("the harness note names the notice it had to add", () => {
+  const config = cfg();
+  config.banner = {
+    ...config.banner,
+    mode: "authored",
+    prefix: "I am on leave this week, the bot answers meanwhile.",
+    suffix: "Reply in the thread if you would like a human to look again.",
+  };
+  const composed = composeReview({
+    cfg: config,
+    proposal: proposal({ body: "I am on leave this week and the bot answers meanwhile.\n\nThe decode error is swallowed." }),
+    files,
+    headSha: "abc",
+    owner: "example",
+    repo: "orders-svc",
+  });
+  assert.ok(composed.notes.some((note) => /did not carry its closing notice; the configured notice was added in its place/.test(note)), composed.notes.join("\n"));
+  assert.match(composed.payload.body, /Reply in the thread if you would like a human to look again\.$/, "and it lands at the end");
+  assert.doesNotMatch(composed.payload.body, /I am on leave.*\n\nI am on leave/, "the carried intro is not doubled");
+});

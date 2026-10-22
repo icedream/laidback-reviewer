@@ -74,8 +74,21 @@ export function noticeCoverage(body, notice) {
 }
 
 /**
+ * Where a notice belongs in the body: the opening block for the prefix, the closing block for the suffix.
+ *
+ * Reading the whole body would let one notice answer for both slots, which is how an intro and an outro
+ * became the same thing: a review that opened with the outro text would not be asked for an outro.
+ * A body of one block has no position to judge, so it is read as a whole.
+ */
+export function noticeRegion(body, slot) {
+  const blocks = String(body ?? "").split(/\n[ \t]*\n/).filter((block) => block.trim());
+  if (blocks.length < 2) return blocks.join("\n\n");
+  return slot === "suffix" ? blocks.at(-1) : blocks[0];
+}
+
+/**
  * Decide which banner slots the harness has to supply. In authored mode the review is asked to write the
- * notice itself and only a slot it left out is filled, so a notice never appears twice.
+ * notice itself and only a slot it left out in its own place is filled, so a notice never appears twice.
  *
  * @returns {{ prefix: string, suffix: string, missing: string[], supplied: string[] }}
  */
@@ -93,7 +106,7 @@ export function planBanner({ cfg, proposal }) {
       slots.supplied.push(slot);
       continue;
     }
-    if (noticeCoverage(proposal.body, text) >= 0.6) continue;
+    if (noticeCoverage(noticeRegion(proposal.body, slot), text) >= 0.6) continue;
     slots[slot] = text;
     slots.missing.push(slot);
     slots.supplied.push(slot);
@@ -205,7 +218,10 @@ export function composeReview({ proposal, cfg, files, headSha, owner, repo, bann
   for (const comment of comments) comment.body = cite(comment.body);
 
   const slots = banner ?? planBanner({ cfg, proposal });
-  if (slots.missing?.length) notes.push(`banner: the review did not carry its ${slots.missing.join(" and ")}; the configured notice was added`);
+  if (slots.missing?.length) {
+    const label = { prefix: "opening notice", suffix: "closing notice" };
+    notes.push(`banner: the review did not carry its ${slots.missing.map((slot) => label[slot] ?? slot).join(" and ")}; the configured notice was added in its place`);
+  }
 
   const body = assembleBody({
     prefix: slots.prefix,
