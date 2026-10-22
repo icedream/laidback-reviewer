@@ -139,13 +139,16 @@ export function sweepScratch({ cfg, keepRunIds = [], olderThanMs, now = Date.now
     }
   }
   if (removed.length) {
-    // The cached clones still list these as registered worktrees.
-    const reposRoot = path.dirname(path.resolve(cfg.checkout.repos));
-    for (const cached of safeEntries(reposRoot)) {
-      try {
-        git(["worktree", "prune"], { cwd: path.join(reposRoot, cached), cfg });
-      } catch {
-        // not a clone, or nothing to prune
+    // The cached clones still list these as registered worktrees. They live two levels down:
+    // <root>/<owner>/<repo>.
+    const root = path.resolve(cfg.checkout.root);
+    for (const owner of safeEntries(root)) {
+      for (const name of safeEntries(path.join(root, owner))) {
+        try {
+          git(["worktree", "prune"], { cwd: path.join(root, owner, name), cfg });
+        } catch {
+          // not a clone, or nothing to prune
+        }
       }
     }
     log(`scratch: ${removed.length} abandoned tree(s) older than ${Math.round(olderThanMs / 60000)}min removed`);

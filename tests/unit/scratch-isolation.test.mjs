@@ -56,7 +56,7 @@ test("run ids differ", () => {
 test("scratch nothing can resume is swept, scratch a deferral keeps is not", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "laidback-sweep-"));
   const scratch = path.join(dir, "scratch");
-  const cfg = { checkout: { scratch, compareDir: path.join(scratch, "refs"), repos: path.join(dir, "repos") } };
+  const cfg = { checkout: { scratch, compareDir: path.join(scratch, "refs"), root: path.join(dir, "repos") } };
   const day = 86_400_000;
   const touch = (name, ageMs) => {
     const full = path.join(scratch, name);

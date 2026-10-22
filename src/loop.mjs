@@ -114,7 +114,16 @@ export async function cycle({
         // Nothing about the PR went wrong, so the head is put back for later instead of burning an
         // attempt: a shared inference slot must not park a review that was never run.
         const until = new Date(Date.now() + cfg.agent.model.deferMs).toISOString();
-        store.deferHead({ ...key, until_at: until, reason: error.message, sessionFile: error.sessionFile ?? null, runId: error.runId ?? null, checkoutDir: error.checkoutDir ?? null });
+        // A pass cancelled before it reached the prompt has nothing new to point at, and overwriting the
+        // pointers would drop the transcript and tree that are worth resuming.
+        store.deferHead({
+          ...key,
+          until_at: until,
+          reason: error.message,
+          sessionFile: error.sessionFile ?? deferral?.session_file ?? null,
+          runId: error.runId ?? checkout?.runId ?? deferral?.run_id ?? null,
+          checkoutDir: error.checkoutDir ?? checkout?.dir ?? deferral?.checkout_dir ?? null,
+        });
         // The transcript names paths in this tree. Deleting it here is what turns a pause into a restart.
         keepCheckout = true;
         log(`    deferred: ${error.message}, retry after ${until.slice(11, 16)}${checkout ? `, tree kept at ${checkout.dir}` : ""}`);

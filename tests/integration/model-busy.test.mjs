@@ -95,3 +95,27 @@ test("a queue that forms after the turn started cancels it, and the progress out
     await env.close();
   }
 });
+
+test("a deferral that never reached the prompt keeps the work worth resuming", async () => {
+  const env = await setupReviewRun({ turns: [], modelStatus: { busy: true, queued: 0, phase: "reading the prompt" }, overrides: busyOverrides });
+  try {
+    const head = key(env);
+    env.store.deferHead({
+      ...head,
+      until_at: new Date(Date.now() - 1000).toISOString(),
+      reason: "earlier pause",
+      sessionFile: "/data/sessions/earlier.jsonl",
+      runId: "keep0001",
+      checkoutDir: "/work/scratch/keep0001",
+    });
+
+    await env.cycle();
+
+    const row = env.store.deferralFor(head);
+    assert.ok(row, "still deferred");
+    assert.equal(row.session_file, "/data/sessions/earlier.jsonl", "the transcript is still the one to fork");
+    assert.equal(row.run_id, "keep0001", "and the tree is still the one to reuse");
+  } finally {
+    env.close();
+  }
+});

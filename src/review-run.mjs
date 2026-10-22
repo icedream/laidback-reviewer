@@ -184,6 +184,9 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
         ? SessionManager.create(checkoutDir, cfg.context.sessionDir)
         : SessionManager.inMemory(checkoutDir);
 
+  if (task.resumeSessionFile) {
+    log(`resuming the interrupted pass from ${task.resumeSessionFile}${task.resumeScratchKept ? ", its scratch tree still in place" : ", its scratch tree gone"}`);
+  }
   const { session } = await createReviewSession({
     cfg,
     agentDir: piAgentDir,
