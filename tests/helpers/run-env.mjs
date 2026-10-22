@@ -74,7 +74,7 @@ export function baseConfig({ dir }) {
  * Bring up one review run. `overrides` is a partial config tree, so each test reads as a policy
  * difference rather than a new environment.
  */
-export async function setupReviewRun({ overrides = {}, scriptOptions = {}, turns = null, env = {}, jira = false, context = null, modelFails = [], modelStatus = null, prState = null, githubOptions = {} } = {}) {
+export async function setupReviewRun({ overrides = {}, scriptOptions = {}, turns = null, env = {}, jira = false, context = null, modelFails = [], modelStatus = null, modelDelay = 0, prState = null, githubOptions = {} } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "laidback-test-"));
   fs.mkdirSync(path.join(dir, "scratch"), { recursive: true });
   let jiraCallsPath = null;
@@ -86,7 +86,7 @@ export async function setupReviewRun({ overrides = {}, scriptOptions = {}, turns
   const { baseUrl: githubBaseUrl } = await github.start();
 
   const script = typeof turns === "function" ? turns(fixture, fixture.dir) : turns;
-  const model = createScriptedModel({ turns: script ?? reviewScript({ fixture, scratchDir: fixture.dir, ...scriptOptions }), failAttempts: modelFails, status: modelStatus });
+  const model = createScriptedModel({ turns: script ?? reviewScript({ fixture, scratchDir: fixture.dir, ...scriptOptions }), failAttempts: modelFails, status: modelStatus, delayMs: modelDelay });
   const { baseUrl: modelBaseUrl } = await model.start();
 
   const agentDir = path.join(dir, "agent");

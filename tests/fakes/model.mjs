@@ -15,12 +15,12 @@ function chunk(body) {
   return `data: ${JSON.stringify(body)}\n\n`;
 }
 
-export function createScriptedModel({ turns, model = "scripted-review", failAttempts = [], status = null }) {
+export function createScriptedModel({ turns, model = "scripted-review", failAttempts = [], status = null, delayMs = 0 }) {
   const requests = [];
   const failing = new Set(failAttempts);
   let turn = 0;
 
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
     // The queue probe reads a status document rather than a completion, so a busy server can be
     // simulated without spending a script turn or parsing an empty body.
     if (status && req.method === "GET" && (/^\/status/.test(req.url) || /^\/slots/.test(req.url))) {
@@ -38,7 +38,7 @@ export function createScriptedModel({ turns, model = "scripted-review", failAtte
     }
     const chunks = [];
     req.on("data", (chunkData) => chunks.push(chunkData));
-    req.on("end", () => {
+    req.on("end", async () => {
       const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
 
       // A busy upstream: the attempt is recorded but consumes no script turn, so the client's retry
@@ -68,6 +68,10 @@ export function createScriptedModel({ turns, model = "scripted-review", failAtte
       };
       requests.push(request);
       turn += 1;
+
+      // A slow answer is what a queue in front of us looks like from the client side.
+      const wait = typeof delayMs === "function" ? delayMs(requests.length - 1) : delayMs;
+      if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
 
       const id = `chatcmpl-script-${request.turn}`;
       const created = Math.floor(Date.now() / 1000);

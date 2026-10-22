@@ -63,3 +63,35 @@ test("a server with nothing to say about its queue does not block the review", a
     await env.close();
   }
 });
+
+test("a queue that forms after the turn started cancels it, and the progress output stops with it", async () => {
+  // The first probe is the pre-prompt one and says the slot is free; every later one says something is
+  // in front of us. The scripted turn answers slowly, which is what queuing looks like from here.
+  let probes = 0;
+  const env = await setupReviewRun({
+    turns: [{ content: "reading the diff now" }],
+    modelStatus: () =>
+      ++probes === 1
+        ? { busy: false, queued: 0, phase: "idle", generated: 0, promptTokens: 0 }
+        : { busy: true, queued: 1, phase: "thinking", generated: 10, promptTokens: 500 },
+    modelDelay: () => 6000,
+    overrides: {
+      agent: { model: { probe: "status", firstTokenMs: 2000, busyRetries: 0, deferMs: 90_000 } },
+      logging: { progress: "tools", heartbeatMs: 1000 },
+    },
+  });
+  try {
+    await env.cycle();
+
+    assert.ok(env.store.deferralFor(key(env)), "the head is set aside for the next cycle");
+    assert.match(env.log(), /queued in front of us: cancelling the request/);
+
+    // The heartbeat runs every 200ms while a session is live. If it outlives a cancelled run, the
+    // process never exits and the log fills with "still working".
+    const linesAfterRun = env.log().split("\n").length;
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    assert.equal(env.log().split("\n").length, linesAfterRun, "nothing keeps printing after the run ends");
+  } finally {
+    await env.close();
+  }
+});

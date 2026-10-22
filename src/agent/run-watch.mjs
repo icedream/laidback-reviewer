@@ -26,13 +26,40 @@ export class ModelBudgetError extends Error {
 const ACTIVITY = new Set(["message_start", "message_update", "message_end", "tool_execution_start", "turn_end"]);
 
 /**
+ * Why a silent run should be cancelled, or nothing when the server is merely working.
+ */
+export function cancellationReason(previous, status) {
+  if (!status) return "";
+  if (Number(status.queued ?? 0) > 0) return `${status.queued} request(s) are queued in front of us`;
+  const counts = typeof status.generated === "number" && typeof status.promptTokens === "number";
+  if (counts && previous && previous.generated === status.generated && previous.promptTokens === status.promptTokens) {
+    return `the server has produced nothing since ${status.phase || "its last state"}`;
+  }
+  return "";
+}
+
+/**
  * Returns { state, release }. state.busy is set when the watchdog cancelled the run because the server
  * was occupied; state.overBudget when the whole-run budget fired. Call release() once the prompt is
  * done, or the timers outlive the turn.
+ *
+ * The check is a staleness rule rather than a one-shot deadline: a review makes many model requests, and
+ * a queue can form in front of any of them, so silence is measured from the last event of any kind.
  */
-export function watchRun({ session, firstTokenMs = 45_000, budgetMs = 0, probe = null, log = () => {}, timer = setTimeout, untimer = clearTimeout }) {
-  const state = { activity: false, busy: null, overBudget: false };
-  const unsubscribe = typeof session.subscribe === "function" ? session.subscribe((event) => ACTIVITY.has(event?.type) ? (state.activity = true) : undefined) : () => {};
+export function watchRun({ session, firstTokenMs = 45_000, budgetMs = 0, probe = null, log = () => {}, timer = setTimeout, untimer = clearTimeout, now = () => Date.now() }) {
+  const startedAt = now();
+  const state = { activity: false, busy: null, reason: "", overBudget: false, lastActivityAt: startedAt, checks: 0 };
+  const unsubscribe =
+    typeof session.subscribe === "function"
+      ? session.subscribe((event) => {
+          if (event?.type === "turn_start") state.activity = false;
+          else if (ACTIVITY.has(event?.type)) state.activity = true;
+          else return;
+          state.lastActivityAt = now();
+        })
+      : () => {};
+
+  const intervalMs = Math.max(1_000, Math.min(firstTokenMs, 5_000));
 
   const cancel = async (why) => {
     try {
@@ -42,21 +69,35 @@ export function watchRun({ session, firstTokenMs = 45_000, budgetMs = 0, probe =
     }
   };
 
-  const firstTokenTimer = probe
-    ? timer(async () => {
-        if (state.activity) return;
-        let status = null;
-        try {
-          status = await probe();
-        } catch {
-          return;
-        }
-        if (!status?.busy) return;
+  let armed = null;
+  let previous = null;
+  const tick = async () => {
+    const silence = now() - state.lastActivityAt;
+    state.checks += 1;
+    if (silence >= firstTokenMs) {
+      let status = null;
+      try {
+        status = await probe();
+      } catch {
+        status = null;
+      }
+      // Silence alone proves nothing: a local model writing a long answer is silent too. Two reasons
+      // cancel, and both say the work is not ours: something is queued in front of us, or the server's
+      // own counters have not moved between two looks, which is a client that stopped sending.
+      const reason = cancellationReason(previous, status);
+      if (reason) {
         state.busy = status;
-        log(`no model output in ${firstTokenMs}ms while the server shows ${status.phase || "a prompt in flight"}: cancelling the request`);
-        await cancel("first token");
-      }, firstTokenMs)
-    : null;
+        state.reason = reason;
+        log(`nothing on the wire for ${Math.round(silence / 1000)}s and ${reason}: cancelling the request`);
+        await cancel("silence");
+        return;
+      }
+      previous = status;
+    }
+    armed = timer(tick, intervalMs);
+  };
+
+  armed = probe ? timer(tick, intervalMs) : null;
 
   const budgetTimer = budgetMs
     ? timer(async () => {
@@ -69,7 +110,7 @@ export function watchRun({ session, firstTokenMs = 45_000, budgetMs = 0, probe =
   return {
     state,
     release() {
-      if (firstTokenTimer) untimer(firstTokenTimer);
+      if (armed) untimer(armed);
       if (budgetTimer) untimer(budgetTimer);
       unsubscribe();
     },

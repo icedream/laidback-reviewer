@@ -42,7 +42,17 @@ export async function statusProbe({ root, apiKey, timeoutMs = 3000, fetchImpl = 
   const body = await getJson(`${root}/status`, { apiKey, timeoutMs, fetchImpl });
   if (!body || typeof body.busy !== "boolean") return null;
   const queued = Number(body.queued ?? 0);
-  return { source: "status", busy: body.busy || queued > 0, queued, phase: String(body.phase ?? "") };
+  const number = (value) => (typeof value === "number" ? value : undefined);
+  return {
+    source: "status",
+    busy: body.busy || queued > 0,
+    queued,
+    phase: String(body.phase ?? ""),
+    // These two say whether the server is moving, which is how a request of ours that is simply
+    // generating is told apart from a client that stopped sending.
+    generated: number(body.generated),
+    promptTokens: number(body.prompt_tokens),
+  };
 }
 
 export async function slotsProbe({ root, apiKey, model, timeoutMs = 3000, fetchImpl = fetch }) {
@@ -53,7 +63,6 @@ export async function slotsProbe({ root, apiKey, model, timeoutMs = 3000, fetchI
   const processing = body.filter((slot) => slot?.is_processing).length;
   return { source: "slots", busy: processing > 0, queued: 0, phase: processing ? `${processing}/${body.length} slots processing` : "slots idle" };
 }
-
 /**
  * No status endpoint: ask for one token and see how fast it answers. A slow answer means the slot is
  * taken; an unreachable server is reported separately, because that is a failure rather than a queue.
