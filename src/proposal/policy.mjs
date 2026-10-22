@@ -75,13 +75,23 @@ const STOPWORDS = new Set(["the", "and", "for", "with", "that", "this", "from", 
  * How much of a configured notice the review body already carries, counted in content words. Coverage
  * rather than phrasing: the agent may word the notice its own way, so no sentence shape is assumed.
  */
+const distinctiveWords = (text) =>
+  [...new Set((String(text ?? "").toLowerCase().match(/[\p{L}\p{N}'_-]{3,}/gu) ?? []).filter((word) => !STOPWORDS.has(word)))];
+
+/**
+ * How much of a notice a piece of text states: the fraction of its distinctive words, and how many it
+ * states at all. Word forms count, so "tested" answers "testing".
+ */
+export function noticePresence(region, notice) {
+  const needed = distinctiveWords(notice);
+  if (!needed.length) return { coverage: 1, hits: 1 };
+  const hay = String(region ?? "").toLowerCase();
+  const hits = needed.filter((word) => new RegExp("\\b" + escapeForRegex(word) + "\\w*").test(hay)).length;
+  return { coverage: hits / needed.length, hits };
+}
+
 export function noticeCoverage(body, notice) {
-  const words = String(notice ?? "").toLowerCase().match(/[\p{L}\p{N}'_-]{3,}/gu);
-  const needed = [...new Set((words ?? []).filter((word) => !STOPWORDS.has(word)))];
-  if (!needed.length) return 1;
-  const hay = String(body ?? "").toLowerCase();
-  const found = needed.filter((word) => new RegExp("\\b" + escapeForRegex(word) + "\\b").test(hay)).length;
-  return found / needed.length;
+  return noticePresence(body, notice).coverage;
 }
 
 /**
@@ -98,17 +108,31 @@ export function noticeRegion(body, slot) {
 }
 
 /**
+ * Put text in the block where a notice belongs, leaving the rest of the body alone.
+ */
+export function replaceRegion(body, slot, text) {
+  const blocks = String(body ?? "").split(/\n[ \t]*\n/);
+  const filled = blocks.filter((block) => block.trim());
+  if (!filled.length) return String(text ?? "").trim();
+  if (filled.length === 1) return String(text ?? "").trim();
+  blocks[blocks.indexOf(slot === "suffix" ? filled.at(-1) : filled[0])] = String(text ?? "").trim();
+  return blocks.join("\n\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/**
  * Decide which banner slots the harness has to supply. In authored mode the review is asked to write the
- * notice itself and only a slot it left out in its own place is filled, so a notice never appears twice.
+ * notice itself: a slot it left out is filled, and a slot it wrote is only ever reworded in place, so a
+ * notice never appears twice.
  *
- * @returns {{ prefix: string, suffix: string, missing: string[], supplied: string[] }}
+ * @returns {{ prefix: string, suffix: string, missing: string[], supplied: string[], inPlace: string[],
+ *   verbatim: string[], draft: Record<string, string>, reworded: string[] }}
  */
 export function planBanner({ cfg, proposal }) {
   const configured = {
     prefix: proposal.banner?.prefix ?? cfg.banner.prefix ?? "",
     suffix: proposal.banner?.suffix ?? cfg.banner.suffix ?? "",
   };
-  const slots = { prefix: "", suffix: "", missing: [], supplied: [], verbatim: [] };
+  const slots = { prefix: "", suffix: "", missing: [], supplied: [], verbatim: [], inPlace: [], draft: {}, reworded: [] };
   for (const slot of ["prefix", "suffix"]) {
     const text = configured[slot];
     if (!text) continue;
@@ -117,15 +141,29 @@ export function planBanner({ cfg, proposal }) {
       slots.supplied.push(slot);
       continue;
     }
-    const carried = noticeCoverage(noticeRegion(proposal.body, slot), text) >= 0.6;
-    // Pasting the configured sentence is not carrying it in the review's own words. It still goes to the
-    // rewording pass, but the review is not counted as having left the disclosure out.
-    const verbatim = carried && containsVerbatim(proposal.body, text);
-    if (carried && !verbatim) continue;
-    slots[slot] = text;
-    if (!carried) slots.missing.push(slot);
-    if (verbatim) slots.verbatim.push(slot);
-    slots.supplied.push(slot);
+    const region = noticeRegion(proposal.body, slot);
+    const { coverage, hits } = noticePresence(region, text);
+    // What matters is that the disclosure is stated there, not that the words match: a rewrite that keeps
+    // the claims shares few of them by design. Two distinctive words in a notice-sized block is that
+    // disclosure, restated.
+    const carried = coverage >= 0.6 || (hits >= 2 && region.trim().length <= 400);
+    const verbatim = containsVerbatim(proposal.body, text);
+
+    if (!carried) {
+      slots[slot] = text;
+      slots.missing.push(slot);
+      slots.supplied.push(slot);
+      continue;
+    }
+    if (verbatim || cfg.banner[`rephrase${slot === "prefix" ? "Prefix" : "Suffix"}`]) {
+      // The review put a notice in its place. Nothing is ever added beside it: at most the block itself is
+      // replaced by one reworded sentence.
+      slots[slot] = text;
+      slots.inPlace.push(slot);
+      slots.supplied.push(slot);
+      if (verbatim) slots.verbatim.push(slot);
+      else slots.draft[slot] = region;
+    }
   }
   return slots;
 }
@@ -141,7 +179,7 @@ export function assembleBody({ prefix, body, verdictLine, suffix }) {
  * The rephrase call exists for text flow only. It must not add a claim, a commitment, a link or a
  * mention, so anything that was not in the source is a rejection and the literal text is used.
  */
-export function validateBannerSlot(original, rewritten, { label = "banner" } = {}) {
+export function validateBannerSlot(original, rewritten, { label = "banner", draft = "" } = {}) {
   if (!original) return { ok: !rewritten, reason: rewritten ? `${label}: rephrased an empty slot` : "" };
   const text = (rewritten ?? "").trim();
   if (!text) return { ok: false, reason: `${label}: rephrase returned nothing` };
@@ -163,12 +201,16 @@ export function validateBannerSlot(original, rewritten, { label = "banner" } = {
     if (!tags(original).has(tag)) return { ok: false, reason: `${label}: introduces <${tag}> markup` };
   }
 
-  // A rewrite that shares no real wording with the source is a new sentence, not a rephrase.
-  const STOP = new Set(["the", "this", "that", "with", "from", "for", "and", "not", "you", "your", "are", "was", "were", "will", "have", "been"]);
-  const words = (s) => new Set((String(s).toLowerCase().match(/[a-z0-9]{3,}/g) ?? []).filter((word) => !STOP.has(word)));
-  const originalWords = words(original);
-  const shared = [...words(text)].filter((word) => originalWords.has(word)).length;
-  if (shared < 2) return { ok: false, reason: `${label}: shares no wording with the source` };
+  // Changing the words is the job, so overlap is only a floor: some claim of the source, or of the draft
+  // the review wrote, has to survive. What must not appear is a promise the source never made.
+  const known = new Set([...distinctiveWords(original), ...distinctiveWords(draft)]);
+  if (!distinctiveWords(text).some((word) => known.has(word))) {
+    return { ok: false, reason: `${label}: no claim from the source survives` };
+  }
+  const promise = /\b(i will|i'll|i've|i have|going to|fixed|updated|patched)\b/i;
+  if (promise.test(text) && !promise.test(original) && !promise.test(draft)) {
+    return { ok: false, reason: `${label}: promises work the source does not` };
+  }
   return { ok: true, reason: "" };
 }
 
@@ -234,16 +276,27 @@ export function composeReview({ proposal, cfg, files, headSha, owner, repo, bann
   for (const comment of comments) comment.body = cite(comment.body);
 
   const slots = banner ?? planBanner({ cfg, proposal });
+  const inPlace = slots.inPlace ?? [];
+  const reworded = slots.reworded ?? [];
   if (slots.missing?.length) {
     const label = { prefix: "opening notice", suffix: "closing notice" };
     notes.push(`banner: the review did not carry its ${slots.missing.map((slot) => label[slot] ?? slot).join(" and ")}; the configured notice was added in its place`);
   }
 
+  let bodyText = cite(proposal.body ?? "");
+  for (const slot of inPlace) {
+    if (!reworded.includes(slot)) continue;
+    const text = (slots[slot] ?? "").trim();
+    if (text) bodyText = replaceRegion(bodyText, slot, text);
+  }
+
   const body = assembleBody({
-    prefix: slots.prefix,
-    body: cite(proposal.body ?? ""),
+    // A slot whose notice the review already wrote is never prepended as well; that is how a disclosure
+    // ended up in the body twice, in two sets of words.
+    prefix: slots.supplied.includes("prefix") && !inPlace.includes("prefix") ? slots.prefix : "",
+    body: bodyText,
     verdictLine,
-    suffix: slots.suffix,
+    suffix: slots.supplied.includes("suffix") && !inPlace.includes("suffix") ? slots.suffix : "",
   });
   if (inlined || pinned) notes.push(`citations: ${inlined} bare permalink(s) given alt text, ${pinned} file mention(s) pinned to ${headSha.slice(0, 8)}`);
 

@@ -133,6 +133,87 @@ test("the approve wording is the operator's sentence, added once", () => {
   assert.doesNotMatch(delegated.payload.body, /Verdict:/);
 });
 
+test("a notice restated in other words is carried, and offered in place", () => {
+  const config = cfg();
+  config.banner = { ...config.banner, mode: "authored", suffix: "", prefix: "Automated review: this pass was written by the repo's review bot, not by hand.", rephrasePrefix: true };
+  const body = "An automated reviewer wrote this pass rather than a person.\n\nLGTM. The directive names the compiler that ships.";
+
+  const plan = planBanner({ cfg: config, proposal: proposal({ body }) });
+  assert.deepEqual(plan.missing, [], "the disclosure is stated there, in other words");
+  assert.deepEqual(plan.inPlace, ["prefix"], "at most the block itself is touched");
+  assert.equal(plan.draft.prefix, "An automated reviewer wrote this pass rather than a person.", "the rewrite is offered the review's own sentence");
+
+  // With rephrasing off there is nothing to do: the review wrote the notice.
+  const off = cfg();
+  off.banner = { ...config.banner, rephrasePrefix: false };
+  const left = planBanner({ cfg: off, proposal: proposal({ body }) });
+  assert.deepEqual(left.supplied, [], "the configured sentence is not added beside it");
+  assert.deepEqual(left.inPlace, []);
+
+  // Something that is not a notice at all is still a gap.
+  const absent = planBanner({
+    cfg: config,
+    proposal: proposal({ body: "The offset is off by one page, so the first page is never served.\n\nLGTM on the split." }),
+  });
+  assert.deepEqual(absent.missing, ["prefix"]);
+  assert.deepEqual(absent.inPlace, []);
+});
+
+test("the reworded sentence replaces the block instead of doubling the disclosure", () => {
+  const config = cfg();
+  config.banner = { ...config.banner, mode: "authored", suffix: "", prefix: "Automated review: this pass was written by the repo's review bot, not by hand.", rephrasePrefix: true };
+  const body = "An automated reviewer wrote this pass rather than a person.\n\nLGTM. The directive names the compiler that ships.";
+  const plan = planBanner({ cfg: config, proposal: proposal({ body }) });
+
+  const composed = composeReview({
+    proposal: proposal({ body }),
+    cfg: config,
+    files: [],
+    headSha: "abc1234567",
+    owner: "example",
+    repo: "orders-svc",
+    banner: { ...plan, prefix: "This pass came from the repo's review bot rather than from a person at a keyboard.", reworded: ["prefix"] },
+  });
+
+  assert.ok(composed.payload.body.startsWith("This pass came from the repo's review bot rather than from a person at a keyboard."), composed.payload.body);
+  assert.ok(!composed.payload.body.includes("Automated review: this pass was written by the repo's review bot, not by hand."), "the configured sentence is not added as well");
+  assert.ok(!composed.payload.body.includes("An automated reviewer wrote this pass rather than a person."), "the block it replaces is gone");
+  assert.match(composed.payload.body, /LGTM\. The directive names the compiler/);
+});
+
+test("a pasted notice is reworded in place, and a refused rewrite leaves one copy", () => {
+  const config = cfg();
+  config.banner = { ...config.banner, mode: "authored", suffix: "", prefix: "Automated review: this pass was written by the repo's review bot, not by hand.", rephrasePrefix: true };
+  const pasted = "Automated review: this pass was written by the repo's review bot, not by hand.\n\nLGTM. The directive names the compiler that ships.";
+  const plan = planBanner({ cfg: config, proposal: proposal({ body: pasted }) });
+  assert.deepEqual(plan.verbatim, ["prefix"]);
+  assert.deepEqual(plan.inPlace, ["prefix"]);
+
+  const rewritten = composeReview({
+    proposal: proposal({ body: pasted }),
+    cfg: config,
+    files: [],
+    headSha: "abc1234567",
+    owner: "example",
+    repo: "orders-svc",
+    banner: { ...plan, prefix: "This pass came from the repo's review bot rather than from a person at a keyboard.", reworded: ["prefix"] },
+  });
+  assert.ok(rewritten.payload.body.startsWith("This pass came from the repo's review bot rather than from a person at a keyboard."));
+  assert.equal((rewritten.payload.body.match(/Automated review:/g) ?? []).length, 0, "not twice");
+
+  const refused = composeReview({
+    proposal: proposal({ body: pasted }),
+    cfg: config,
+    files: [],
+    headSha: "abc1234567",
+    owner: "example",
+    repo: "orders-svc",
+    banner: plan,
+  });
+  assert.ok(refused.payload.body.startsWith("Automated review: this pass was written by the repo's review bot, not by hand."), "one copy, the one the review pasted");
+  assert.equal((refused.payload.body.match(/Automated review:/g) ?? []).length, 1);
+});
+
 test("an authored notice the review carries is not supplied twice", () => {
   const config = cfg();
   config.banner = { ...config.banner, mode: "authored", suffix: "", prefix: "I am on leave this week, the bot answers meanwhile." };

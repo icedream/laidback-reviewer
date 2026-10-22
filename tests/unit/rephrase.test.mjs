@@ -30,11 +30,24 @@ test("a rewrite that adds an approval claim falls back to the configured text", 
   assert.match((parsed.notes ?? []).join(" "), /introduces a verdict or merge claim/);
 });
 
-test("an answer with no shared wording falls back", () => {
+test("an answer that keeps none of the claims falls back", () => {
   const parsed = parseRephrasedBanners("script exhausted", configured);
   assert.equal(parsed.prefix, configured.prefix);
   assert.equal(parsed.suffix, configured.suffix);
-  assert.match((parsed.notes ?? []).join(" "), /shares no wording/);
+  assert.match((parsed.notes ?? []).join(" "), /no claim from the source survives/);
+});
+
+test("a rewrite may share nothing with the configured line and still keep the draft's claims", () => {
+  const slots = { prefix: "Automated review: this pass was written by the repo's review bot, not by hand.", suffix: "" };
+  const drafts = { prefix: "An automated reviewer wrote this pass rather than a person." };
+  const parsed = parseRephrasedBanners("prefix: This pass came from the repo's review bot rather than from a person at a keyboard.", slots, drafts);
+  assert.equal(parsed.suffix, undefined, "an empty slot is never offered");
+  assert.match(parsed.prefix, /person at a keyboard/);
+  assert.equal(parsed.notes, undefined, "a rewrite is allowed to change the words");
+
+  const invented = parseRephrasedBanners("prefix: I will fix this and merge it myself.", slots, drafts);
+  assert.equal(invented.prefix, slots.prefix);
+  assert.match((invented.notes ?? []).join(" "), /introduces a verdict or merge claim/);
 });
 
 test("SKIP keeps the slot instead of inventing one", () => {

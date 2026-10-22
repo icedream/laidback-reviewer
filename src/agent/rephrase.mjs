@@ -11,18 +11,23 @@ import { SessionManager, SettingsManager, createAgentSessionFromServices, create
 import { validateBannerSlot } from "../proposal/policy.mjs";
 
 /** Asks only for the slots that actually need a rewrite, so a fixed footer is never offered. */
-const PROMPT = (slots, prRef) => [
+const PROMPT = (slots, prRef, drafts = {}) => [
   "Rewrite banner lines for a pull-request review. Keep every claim, add none.",
   "Rules: at most two lines each, no verdict or merge words unless present below, no links, no",
   "mentions, no new markup. Output one line per banner, each starting with its name.",
   ...Object.entries(slots).map(([name, text]) => `${name}: ${text}`),
+  ...Object.entries(drafts).map(([name, text]) => `${name}, as the review already wrote it: ${text}`),
+  ...(Object.keys(drafts).length
+    ? ["Where the review already wrote a line, your answer replaces it in the body: keep its tone, fix what",
+       "reads badly, and do not repeat the configured line beside it."]
+    : []),
   prRef ? `PR for context: ${prRef}` : "",
 ]
   .filter(Boolean)
   .join("\n");
 
 /** Split a model answer into the requested slots, labelled first and positional as a fallback. */
-export function parseRephrasedBanners(raw, slots) {
+export function parseRephrasedBanners(raw, slots, drafts = {}) {
   const lines = String(raw ?? "")
     .trim()
     .split("\n")
@@ -43,7 +48,7 @@ export function parseRephrasedBanners(raw, slots) {
     .forEach((name, index) => {
     const source = slots[name];
     const candidate = labelled.get(name) ?? bare[index] ?? "";
-    const check = validateBannerSlot(source, candidate, { label: `banner.${name}` });
+    const check = validateBannerSlot(source, candidate, { label: `banner.${name}`, draft: drafts[name] ?? "" });
     out[name] = check.ok ? candidate : source;
     if (!check.ok) out.notes.push(check.reason);
   });
@@ -56,7 +61,7 @@ export function parseRephrasedBanners(raw, slots) {
  * @param slots the banner slots that need wording, typically the ones the review did not carry itself
  * @returns {{ prefix: string, suffix: string }} with unchanged text where a rewrite was refused
  */
-export async function rephraseBanner({ cfg, agentDir, cwd, prRef, slots, log = () => {} }) {
+export async function rephraseBanner({ cfg, agentDir, cwd, prRef, slots, drafts = {}, log = () => {} }) {
   const wanted = Object.fromEntries(Object.entries(slots ?? {}).filter(([, text]) => String(text ?? "").trim()));
   if (!Object.keys(wanted).length) return null;
 
@@ -75,12 +80,12 @@ export async function rephraseBanner({ cfg, agentDir, cwd, prRef, slots, log = (
   await session.bindExtensions({ mode: "print" });
 
   try {
-    await session.prompt(PROMPT(wanted, prRef));
+    await session.prompt(PROMPT(wanted, prRef, drafts));
     const last = [...session.messages].reverse().find((message) => message.role === "assistant");
     const text = Array.isArray(last?.content)
       ? last.content.filter((part) => part.type === "text").map((part) => part.text).join("\n")
       : last?.content ?? "";
-    const parsed = parseRephrasedBanners(text, wanted);
+    const parsed = parseRephrasedBanners(text, wanted, drafts);
     if (parsed.notes) log(`banner rephrase rejected: ${parsed.notes.join("; ")}; using the configured text`);
     return Object.fromEntries(Object.keys(wanted).map((name) => [name, parsed[name] ?? wanted[name]]));
   } finally {
