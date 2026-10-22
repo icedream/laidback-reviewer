@@ -74,7 +74,7 @@ export function baseConfig({ dir }) {
  * Bring up one review run. `overrides` is a partial config tree, so each test reads as a policy
  * difference rather than a new environment.
  */
-export async function setupReviewRun({ overrides = {}, scriptOptions = {}, turns = null, env = {}, jira = false, context = null, modelFails = [], modelStatus = null, modelDelay = 0, prState = null, githubOptions = {} } = {}) {
+export async function setupReviewRun({ overrides = {}, scriptOptions = {}, turns = null, env = {}, jira = false, context = null, modelFails = [], modelStatus = null, modelDelay = 0, prState = null, githubOptions = {}, transport = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "laidback-test-"));
   fs.mkdirSync(path.join(dir, "scratch"), { recursive: true });
   let jiraCallsPath = null;
@@ -171,6 +171,7 @@ export async function setupReviewRun({ overrides = {}, scriptOptions = {}, turns
       cfg,
       store,
       client,
+      transport,
       task: { owner: fixture.owner, repo: fixture.repo, pr: fixture.pr, checkoutDir: fixture.dir, ...taskExtra },
       piAgentDir: agentDir,
       artifactDir: path.join(dir, "reviews"),

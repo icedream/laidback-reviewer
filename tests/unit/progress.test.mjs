@@ -102,7 +102,8 @@ test("progress off keeps the state and says nothing", async () => {
   await h.beat();
 
   assert.deepEqual(h.lines, []);
-  assert.equal(h.progress.state.toolCalls, 0, "off does not count either, it only watches the clock");
+  assert.equal(h.progress.state.toolCalls, 1, "off silences the log, not the state: the gate display reads it");
+  assert.equal(h.progress.state.phase, "tool bash");
   assert.equal(h.armedCount(), 0, "no heartbeat is armed at all");
 });
 
@@ -119,4 +120,32 @@ test("the elapsed label is minutes and seconds", () => {
   assert.equal(elapsedLabel(0, 0), "00:00");
   assert.equal(elapsedLabel(95_000, 0), "01:35");
   assert.equal(elapsedLabel(3_600_000, 0), "60:00");
+});
+
+test("the running state is offered to a second consumer without changing the log", () => {
+  const seen = [];
+  const logs = [];
+  const timers = [];
+  const progress = createProgress({
+    log: (line) => logs.push(line),
+    mode: "tools",
+    heartbeatMs: 1_000,
+    timer: (fn) => timers.push(fn),
+    untimer: () => {},
+    onState: (state) => seen.push({ phase: state.phase, toolCalls: state.toolCalls }),
+  });
+  progress.handle({ type: "tool_execution_start", toolName: "read", args: { path: "go.mod" } });
+  progress.handle({ type: "message_end", message: { usage: { input_tokens: 900, output_tokens: 100 } } });
+  progress.stop();
+  assert.deepEqual(seen.map((entry) => entry.phase), ["tool read", "writing"]);
+  assert.equal(seen.at(-1).toolCalls, 1);
+  assert.deepEqual(logs, ["[00:00] tool read path=go.mod"]);
+});
+
+test("state is still tracked when the log stream is off", () => {
+  const seen = [];
+  const progress = createProgress({ mode: "off", onState: (state) => seen.push(state.phase) });
+  progress.handle({ type: "tool_execution_start", toolName: "bash", args: { command: "go test ./..." } });
+  assert.equal(seen.length, 1);
+  assert.equal(progress.state.toolCalls, 1);
 });

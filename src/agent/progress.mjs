@@ -27,13 +27,14 @@ function detailOf(args) {
  * Returns { handle, state, stop }. Subscribe `handle` to the session and call `stop()` when the run
  * ends. `mode: "off"` still tracks state, it just says nothing.
  */
-export function createProgress({ log = () => {}, mode = "tools", heartbeatMs = 15_000, startedAt = Date.now(), now = () => Date.now(), timer = setTimeout, untimer = clearTimeout }) {
+export function createProgress({ log = () => {}, mode = "tools", heartbeatMs = 15_000, startedAt = Date.now(), now = () => Date.now(), timer = setTimeout, untimer = clearTimeout, onState = null }) {
   const state = { toolCalls: 0, tokens: 0, phase: "starting", lastEventAt: startedAt };
 
-  if (mode === "off") return { handle: (event) => (event?.type ? (state.lastEventAt = now()) : undefined), state, stop: () => {} };
-
+  const report = () => onState?.(state);
+  const quiet = mode === "off";
   const stamp = () => elapsedLabel(now(), startedAt);
-  const say = (text) => log(`[${stamp()}] ${text}`);
+  // Off silences the log, not the tracking: the gate display in the chat reads the same state.
+  const say = quiet ? () => {} : (text) => log(`[${stamp()}] ${text}`);
 
   const handle = (event) => {
     if (!event?.type) return;
@@ -42,17 +43,21 @@ export function createProgress({ log = () => {}, mode = "tools", heartbeatMs = 1
     switch (event.type) {
       case "turn_start":
         state.phase = "thinking";
+        report();
         break;
       case "message_end": {
         const usage = event.message?.usage;
         if (usage) state.tokens += Number(usage.input_tokens ?? 0) + Number(usage.output_tokens ?? 0);
         state.phase = "writing";
+        report();
         break;
       }
       case "tool_execution_start":
         state.toolCalls += 1;
         state.phase = `tool ${event.toolName}`;
-        say(`${state.phase}${detailOf(event.args) ? ` ${detailOf(event.args)}` : ""}`);
+        state.lastDetail = detailOf(event.args);
+        say(`${state.phase}${state.lastDetail ? ` ${state.lastDetail}` : ""}`);
+        report();
         break;
       case "tool_execution_end":
         if (mode !== "full") break;
@@ -67,8 +72,9 @@ export function createProgress({ log = () => {}, mode = "tools", heartbeatMs = 1
     const tokenNote = state.tokens ? `, ${Math.round(state.tokens / 100) / 10}k tokens` : "";
     say(`still working: ${state.phase}, ${state.toolCalls} tool call(s)${tokenNote}`);
     heartbeat = timer(beat, heartbeatMs);
+    report();
   };
-  heartbeat = timer(beat, heartbeatMs);
+  if (!quiet) heartbeat = timer(beat, heartbeatMs);
 
   return {
     handle,

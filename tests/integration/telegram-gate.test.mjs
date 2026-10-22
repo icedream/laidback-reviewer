@@ -198,6 +198,27 @@ test("a tap on a message whose gate is gone is answered, not edited into nothing
   }
 });
 
+test("the decided gate message becomes the progress display", async () => {
+  const f = await fixture();
+  try {
+    f.telegram.tap(`ap:${f.opened.gateId}`, { from: { id: 4242, username: "decider" } });
+    await f.gateTransport.readDecisions();
+
+    assert.equal(await f.gateTransport.status(f.opened.gateId, "<b>Reviewing acme/svc#71</b>\nNow: reviewing"), true);
+    const shown = f.telegram.messages.at(-1);
+    assert.match(shown.text, /Now: reviewing/);
+    assert.equal(f.telegram.messages.filter((m) => m.message_id === shown.message_id).length, 1, "the same message is edited, not a new one posted");
+
+    // Telegram refuses an edit that changes nothing; that is not a failure worth logging.
+    const again = f.gateTransport.status(f.opened.gateId, "unchanged-but-not-really").then(() => f.gateTransport.status(f.opened.gateId, "unchanged-but-not-really"));
+    assert.equal(await again, true);
+
+    assert.equal(await f.gateTransport.status("00000000", "nowhere"), false, "a gate with no posted message is skipped");
+  } finally {
+    f.cleanup();
+  }
+});
+
 test("an offset is kept, so a restart does not re-decide a gate", async () => {
   const f = await fixture();
   try {

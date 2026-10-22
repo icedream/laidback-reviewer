@@ -180,9 +180,31 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
     return applied;
   }
 
+  /**
+   * Rewrite the posted gate message in place. Used for run progress, so an approved gate shows that the
+   * review is working rather than sitting unanswered.
+   */
+  async function status(gateId, text) {
+    const gate = store.getGate(gateId);
+    if (!gate?.channel_msg_id) return false;
+    try {
+      await call("editMessageText", {
+        chat_id: chatId,
+        message_id: Number(gate.channel_msg_id),
+        text: text.length > TELEGRAM_TEXT_LIMIT ? `${text.slice(0, TELEGRAM_TEXT_LIMIT - 1)}\n…` : text,
+        parse_mode: "HTML",
+        link_preview_options: { is_disabled: true },
+      });
+      return true;
+    } catch (error) {
+      if (/message is not modified/.test(error.message)) return true;
+      throw error;
+    }
+  }
+
   function expire() {
     return expirePending({ cfg, store, log, kindSuffix: ":telegram" });
   }
 
-  return { post, readDecisions, expire, call };
+  return { post, status, readDecisions, expire, call };
 }

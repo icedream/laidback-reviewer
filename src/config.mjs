@@ -87,6 +87,9 @@ export const CONFIG_SCHEMA = record({
     // tools prints each tool call as the session makes it; full also prints how each one ended.
     progress: enumerated(["off", "tools", "full"], { def: "tools" }),
     heartbeatMs: integer({ def: 15_000, min: 1_000 }),
+    // How often the approved gate message is rewritten with what the session is doing. Telegram counts a
+    // rewrite as a new message for rate-limit purposes, so this is deliberately slow.
+    statusEveryMs: integer({ def: 20_000, min: 2_000 }),
     // The MCP extension appends a log. Empty means the agent dir, which the container mounts read-only.
     mcpLogFile: string({ def: "" }),
   }),

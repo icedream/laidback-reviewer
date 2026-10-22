@@ -389,6 +389,13 @@ spreading it over a dozen thread replies. The decision buttons stay available in
 first decision clears the keyboard so a stale message cannot be tapped twice. Telegram cuts a message at
 4096 characters; a longer summary is truncated, and every finding stays reachable by number.
 
+Approving a task gate turns that same message into a progress display, because ten silent minutes after an
+approval is indistinguishable from a hang. It shows what the session is doing (`tool read path=go.mod`),
+how many tool calls and tokens so far, and elapsed time against `reviews.budgetMs`. It ends on the outcome:
+`review composed` with the verdict and finding count, `paused` when the inference server is busy and the
+head is deferred, or `failed` with the error. Rewrites are throttled by `logging.statusEveryMs`, and a lost
+status write never fails a review that is running.
+
 Taps from an id outside `LAIDBACK_TELEGRAM_USERS` are answered with `not on the allow list` and leave the
 gate pending. Each callback query is acknowledged as it is read, so a restart does not re-decide a gate.
 

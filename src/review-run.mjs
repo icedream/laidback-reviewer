@@ -10,6 +10,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { loadAgentDef, nonInteractiveContract } from "./agent/agent-def.mjs";
 import { createReviewGuard } from "./agent/guard.mjs";
 import { createProgress } from "./agent/progress.mjs";
+import { createRunStatus } from "./agent/run-status.mjs";
 import { waitForMcpTools } from "./agent/mcp-settle.mjs";
 import { promptWithModelRetry } from "./agent/model-retry.mjs";
 import { modelServerStatus, resolveModelServer, slotOccupancy } from "./agent/model-server.mjs";
@@ -51,6 +52,20 @@ export function toPrView(json, { owner, repo }) {
 export async function runReview({ cfg, store, client, task, piAgentDir, artifactDir, transport = null, log = console.error }) {
   const { owner, repo, pr: prNumber, checkoutDir } = task;
   let approvedTaskGate = null;
+
+  // The message a task gate was approved on becomes the progress display for that run, so an approved
+  // gate does not sit unchanged for ten minutes looking like nothing happened.
+  const runStatus =
+    task.statusGateId && typeof transport?.status === "function"
+      ? createRunStatus({
+          send: (text) => transport.status(task.statusGateId, text),
+          title: `Reviewing ${owner}/${repo}#${prNumber}`,
+          everyMs: cfg.logging.statusEveryMs,
+          budgetMs: cfg.reviews.budgetMs,
+          log,
+        })
+      : null;
+  await runStatus?.setStage("reading the pull request");
   const prJson = await client.getPull(owner, repo, prNumber);
   const pr = toPrView(prJson, { owner, repo });
   const headSha = pr.head.sha;
@@ -105,6 +120,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   // with the same read-only credential, so a version claim is read from source rather than inferred.
   // One run, one scratch area. A later session may carry this run's history, and it must not be able to
   // read another run's fetched comparisons as though they were still its own.
+  await runStatus?.setStage("checking out the branch and its diff");
   const runId = task.runId ?? newRunId();
   const compareDir = task.compareDir ?? comparisonDir(cfg, owner, repo, prNumber, headSha, runId);
   fs.mkdirSync(compareDir, { recursive: true });
@@ -204,6 +220,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   if (task.resumeSessionFile) {
     log(`resuming the interrupted pass from ${task.resumeSessionFile}${task.resumeScratchKept ? ", its scratch tree still in place" : ", its scratch tree gone"}`);
   }
+  await runStatus?.setStage("starting the review session");
   const { session } = await createReviewSession({
     cfg,
     agentDir: piAgentDir,
@@ -221,7 +238,12 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   let settle = { waitedMs: 0, ready: [], missing: [] };
   let busyRetriesUsed = 0;
   try {
-    progress = createProgress({ log, mode: cfg.logging.progress, heartbeatMs: cfg.logging.heartbeatMs });
+    progress = createProgress({
+      log,
+      mode: cfg.logging.progress,
+      heartbeatMs: cfg.logging.heartbeatMs,
+      onState: (state) => runStatus?.progress(state),
+    });
     stopProgress = session.subscribe(progress.handle);
 
     // The MCP extension connects after the session exists. Prompting at that moment asks the model to
@@ -237,12 +259,16 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     try {
       busyRetriesUsed = await promptWithModelRetry({ session, cfg, collector, prompt, log, probe: modelProbe });
     } catch (error) {
+      if (error?.name !== "ModelBusyError") {
+        await runStatus?.finish("failed", error?.message ?? String(error));
+      }
       if (error?.name === "ModelBusyError") {
         // The loop defers the head, and the next pass resumes from this transcript only if the run hands
         // it over before unwinding.
         error.sessionFile = session.sessionManager?.getSessionFile?.() ?? null;
         error.runId = task.runId ?? null;
         error.checkoutDir = checkoutDir;
+        await runStatus?.finish("paused", "the inference server is busy; the head is deferred and will resume this session");
       }
       throw error;
     }
@@ -326,6 +352,12 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     target: { owner, repo, pr: prNumber, head_sha: headSha },
     summary: renderGateSummary({ pr, headSha, composed, notes, decisions: composed.decisions }),
   });
+
+  await runStatus?.finish(
+    "review composed",
+    `${composed.verdict}, ${composed.payload.comments.length} inline comment(s)` +
+      (gateState.gateId ? `; post gate ${gateState.gateId} ${gateState.state === "approved" ? "cleared" : "awaits your approval"}` : "; nothing to approve"),
+  );
 
   // The artifact is written twice on purpose: once before anything can fail, then again with the
   // posting outcome, so the record never claims a review was sent when the gate held it.
