@@ -267,6 +267,33 @@ test("a task gate offers no rerun control, because nothing has been composed yet
   }
 });
 
+test("a message posted without the control gains it, text untouched", async () => {
+  const f = await fixture();
+  try {
+    const posted = f.telegram.messages.at(-1);
+    posted.reply_markup.inline_keyboard = posted.reply_markup.inline_keyboard.filter((row) => !row[0].callback_data.startsWith("rr:"));
+    const textBefore = posted.text;
+    assert.equal(posted.reply_markup.inline_keyboard.length, 2, "an older build posted two rows");
+
+    assert.equal(await f.gateTransport.refreshControls(), 1);
+    const after = f.telegram.messages.find((entry) => entry.message_id === posted.message_id);
+    assert.equal(after.text, textBefore, "only the keyboard is rewritten");
+    const rows = after.reply_markup.inline_keyboard;
+    assert.deepEqual(rows.map((row) => row.map((b) => b.callback_data)), [
+      [`ap:${f.opened.gateId}`, `rj:${f.opened.gateId}`, `hd:${f.opened.gateId}`],
+      [`fw:${f.opened.gateId}:0`, `fw:${f.opened.gateId}:1`],
+      [`rr:${f.opened.gateId}`],
+    ]);
+
+    // The control that arrived late behaves like the one posted with the message.
+    f.telegram.tap(`rr:${f.opened.gateId}`, { from: { id: 4242, username: "decider" } });
+    assert.deepEqual((await f.gateTransport.readDecisions()).map((entry) => entry.state), ["rerun"]);
+    assert.equal(await f.gateTransport.refreshControls(), 0, "a decided gate is left alone");
+  } finally {
+    f.cleanup();
+  }
+});
+
 test("an offset is kept, so a restart does not re-decide a gate", async () => {
   const f = await fixture();
   try {

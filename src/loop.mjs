@@ -189,6 +189,17 @@ export async function cycle({
 }
 
 export async function runLoop({ cfg, store, client, transport, stop = { current: false }, runCycle = cycle, now = () => Date.now(), nap = sleep }) {
+  // A gate posted by an earlier build keeps the message it was given, so the controls a newer build
+  // offers are put on the messages that are still waiting.
+  if (transport?.refreshControls) {
+    try {
+      const refreshed = await transport.refreshControls();
+      if (refreshed) console.log(`controls refreshed on ${refreshed} waiting gate message(s)`);
+    } catch (error) {
+      console.error(`gate controls could not be refreshed: ${error.message}`);
+    }
+  }
+
   while (!stop.current) {
     const started = now();
     try {

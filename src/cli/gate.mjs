@@ -20,7 +20,7 @@ const STATE_DB = process.env.LAIDBACK_STATE_DB || "data/state.db";
 
 function usage(message) {
   if (message) console.error(message);
-  console.error("usage: node src/cli/gate.mjs list | sync | show <id> | approve <id> | reject <id> [reason] | hold <id> | rerun <id>");
+  console.error("usage: node src/cli/gate.mjs list | sync | show <id> | approve <id> | reject <id> [reason] | hold <id> | rerun <id> | controls");
   process.exit(message ? 1 : 0);
 }
 
@@ -69,6 +69,14 @@ async function main() {
       console.log(`review ${decided.review_id} is approved; post it with: node src/cli/post-approved.mjs ${decided.review_id}`);
     }
     return;
+  }
+
+  if (command === "controls") {
+    const transport = gateTransportFromConfig({ cfg, store, log: (line) => console.log(line) });
+    if (!transport?.refreshControls) usage("only the slack and telegram channels post messages with controls to refresh");
+    const refreshed = await transport.refreshControls();
+    console.log(`${refreshed} waiting gate message(s) brought up to date`);
+    process.exit(0);
   }
 
   if (command === "rerun") {

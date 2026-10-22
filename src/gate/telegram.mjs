@@ -218,9 +218,36 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
     }
   }
 
+  /**
+   * Put the current controls on messages posted earlier, so a gate that predates a control is not stuck
+   * without it. The text is left alone; only the keyboard is rewritten.
+   */
+  async function refreshControls(gates = store.pendingGates()) {
+    let updated = 0;
+    for (const gate of gates) {
+      if (!gate.kind.endsWith(":telegram") || !gate.channel_msg_id) continue;
+      const comments = gate.review_id ? store.commentsFor(gate.review_id) : [];
+      const shown = comments.slice(0, telegram.maxFindingButtons);
+      const offersRerun = Boolean(gate.review_id) && telegram.rerunButton !== false;
+      const keyboard = [decisionRows(gate.id), ...findingRows(gate.id, shown.length), ...(offersRerun ? [rerunRow(gate.id)] : [])];
+      try {
+        await call("editMessageReplyMarkup", {
+          chat_id: chatId,
+          message_id: Number(gate.channel_msg_id),
+          reply_markup: { inline_keyboard: keyboard },
+        });
+        updated += 1;
+      } catch (error) {
+        if (/message is not modified/.test(error.message)) continue;
+        log(`gate ${gate.id}: its Telegram message could not be updated: ${error.message}`);
+      }
+    }
+    return updated;
+  }
+
   function expire() {
     return expirePending({ cfg, store, log, kindSuffix: ":telegram" });
   }
 
-  return { post, status, readDecisions, expire, call };
+  return { post, status, refreshControls, readDecisions, expire, call };
 }

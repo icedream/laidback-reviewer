@@ -60,6 +60,13 @@ export function createTelegramFake({ token = "1234567:AA-test-token" } = {}) {
           edits.push({ message_id: payload.message_id, text: payload.text, reply_markup: payload.reply_markup });
           return json(200, { ok: true, result: message });
         }
+        case "editMessageReplyMarkup": {
+          const message = messages.find((entry) => entry.message_id === payload.message_id);
+          if (!message) return json(400, { ok: false, description: "message to edit is not found" });
+          if (payload.reply_markup) message.reply_markup = payload.reply_markup;
+          edits.push({ message_id: payload.message_id, reply_markup: payload.reply_markup, keyboardOnly: true });
+          return json(200, { ok: true, result: message });
+        }
         case "answerCallbackQuery": {
           toasts.push({ callback_query_id: payload.callback_query_id, text: payload.text ?? "" });
           return json(200, { ok: true, result: true });
