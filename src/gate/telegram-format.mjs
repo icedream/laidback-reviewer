@@ -66,7 +66,8 @@ export function summaryHtml(summary, { comments = [], maxFindings = 0 } = {}) {
 
 /** One finding on its own, in place of the summary. */
 export function findingHtml(gate, comment, index, total) {
-  const body = escapeHtml(String(comment.body ?? "").trim()).replace(/\n/g, "<br>");
+  // Telegram's HTML subset has no <br>: a newline stays a newline, inside a blockquote or out of one.
+  const body = escapeHtml(String(comment.body ?? "").trim());
   return [
     `<b>Finding ${index + 1} of ${total}</b>`,
     `<code>${escapeHtml(refOf(comment))}</code> on gate ${escapeHtml(gate.id)}`,

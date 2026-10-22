@@ -14,6 +14,7 @@
 
 import { loadConfig } from "../config.mjs";
 import { createTelegramGate } from "../gate/telegram.mjs";
+import { renderGateSummary } from "../gate/gate.mjs";
 import { openStore } from "../proposal/store.mjs";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -82,18 +83,38 @@ if (!chatId) {
   process.exit(1);
 }
 
-const gateId = store.openGate({
-  kind: "check:telegram",
-  review_id: null,
-  summary: [
-    "Gate check from src/cli/telegram-check.mjs.",
-    "",
-    "go.mod:7 If this is readable, presenting works.",
-    "internal/api/pagination.go:20-23 Tap a number above to see a whole finding.",
-  ].join("\n"),
-});
+// Two findings, so the numbered buttons and the finding view are checked as well as the decision row.
+const composed = {
+  verdict: "request_changes",
+  action: "submit",
+  event: "REQUEST_CHANGES",
+  decisions: ["request_changes: submit (this gate is a check, not a review)"],
+  payload: {
+    body: [
+      "If this reads well, presenting works.",
+      "Tap 1 or 2 below to open a finding, then back. Tap approve, reject or hold to decide it.",
+      "Nothing here is real, and approving it affects nothing: the row lives in a throwaway state file.",
+    ].join(" "),
+    comments: [
+      { path: "go.mod", line: 7, body: "A single-line finding, so you can see the position written as go.mod:7.\n\nTap back to return to the summary." },
+      { path: "internal/api/pagination.go", start_line: 40, line: 44, body: "A range finding: the position is written 40-44, which is how a comment spanning several lines arrives." },
+    ],
+  },
+  proposalBody: "",
+  proposalBlocking: [],
+};
 
-if (!(await telegram.post(gateId, store.getGate(gateId).summary))) {
+const reviewId = store.saveReview({ owner: "acme", repo: "example", pr: 1, head_sha: "00000000", composed, dryRun: false, notes: [] });
+const summary = renderGateSummary({
+  pr: { html_url: "https://github.com/acme/example/pull/1" },
+  headSha: "00000000",
+  composed,
+  notes: ["this gate came from src/cli/telegram-check.mjs"],
+  decisions: composed.decisions,
+});
+const gateId = store.openGate({ kind: "check:telegram", review_id: reviewId, summary });
+
+if (!(await telegram.post(gateId, summary, { reviewId }))) {
   console.error("posting failed; see the telegram line above");
   process.exit(1);
 }

@@ -54,7 +54,8 @@ test("a finding view quotes the whole body", () => {
   const text = findingHtml({ id: "262970ec" }, comments[0], 0, 2);
   assert.match(text, /<b>Finding 1 of 2<\/b>/);
   assert.match(text, /gate 262970ec/);
-  assert.match(text, /<blockquote>Sarama raised DefaultVersion from V2_6_0_0 to V2_8_0_0\.<br>Nothing sets Config\.Version here\.<\/blockquote>/);
+  assert.match(text, /<blockquote>Sarama raised DefaultVersion from V2_6_0_0 to V2_8_0_0\.\nNothing sets Config\.Version here\.<\/blockquote>/);
+  assert.doesNotMatch(text, /<br>/, "Telegram has no br tag");
 });
 
 test("callbacks round-trip inside the 64 byte budget", () => {
