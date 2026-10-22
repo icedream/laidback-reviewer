@@ -139,20 +139,26 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   const context = pickContext({ cfg, store, pr, stack, files });
   log(context.matched ? `context: ${context.mode} from #${context.review.pr} (${context.kind})` : `context: none (${context.reason})`);
 
+  // Whether this is a second look, and how we know. The GitHub request event is the authority; the reviews
+  // table covers the case where discovery's poll cursor no longer says anything.
+  const earlierRow = store.reviewFor({ owner, repo, pr: prNumber, head_sha: headSha });
+  const earlierPass =
+    task.reRequest ?? (earlierRow ? { handledAt: earlierRow.created_at } : null);
+  if (earlierPass) {
+    log(
+      task.reRequest
+        ? `re-review of this head: GitHub asked again at ${task.reRequest.askedAt}, after a pass at ${task.reRequest.handledAt}`
+        : `re-review of this head: an earlier pass at ${earlierPass.handledAt} is recorded here, no newer request event`,
+    );
+  }
+
   const prompt = buildTaskPrompt({
     pr,
     files,
     checkoutDir,
     headSha,
     prior: { reviews, comments, discussion },
-    reRequest:
-      task.reRequest ??
-      (() => {
-        // Discovery's flag comes from the poll cursor, which an operator can clear. The reviews table knows
-        // whether this bot already wrote a review of this head, and that is what the note is about.
-        const row = store.reviewFor({ owner, repo, pr: prNumber, head_sha: headSha });
-        return row ? { handledAt: row.created_at } : null;
-      })(),
+    reRequest: earlierPass,
     compareDir,
     writableRoots,
     allowHosts: cfg.tools.allowHosts,
@@ -184,6 +190,9 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
 
   // A head deferred because the inference slot was taken comes back to the session where it had already
   // read the diff. Forking that transcript is what keeps a deferral from restarting the review.
+  if (!cfg.context.sessionDir) {
+    log("sessions are in memory (context.sessionDir is empty): an interrupted pass cannot be resumed");
+  }
   const sessionManager = task.resumeSessionFile && cfg.context.sessionDir
     ? SessionManager.forkFrom(task.resumeSessionFile, checkoutDir, cfg.context.sessionDir)
     : context.matched && context.mode === "fork" && cfg.context.sessionDir

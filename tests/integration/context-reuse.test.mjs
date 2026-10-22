@@ -95,6 +95,7 @@ test("a second pass over the same head carries the first pass's conclusions", as
     assert.ok(second.reviewId, "the second pass composes");
 
     assert.match(env.log(), /context: digest from #143 \(same_head\)/);
+    assert.match(env.log(), /re-review of this head: an earlier pass at .*, no newer request event/);
     const prompt = JSON.stringify(env.model.requests().slice(requestsBefore));
     assert.match(prompt, /Continuing from an earlier look: an earlier pass over this same head, PR #143/);
     // The re-request note comes from the store now, not only from the poll cursor an operator can clear.
