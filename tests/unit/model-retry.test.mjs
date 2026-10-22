@@ -26,7 +26,7 @@ function stubSession({ throws = [], fillOnCall = null }) {
 
 test("connection and overload errors count as transient", () => {
   for (const message of [
-    "connect ECONNREFUSED 127.0.0.1:11182",
+    "connect ECONNREFUSED 127.0.0.1:8080",
     "read ECONNRESET",
     "this operation was aborted: timeout",
     "upstream returned 503 Service Unavailable",
@@ -44,7 +44,7 @@ test("connection and overload errors count as transient", () => {
 test("a transient failure re-prompts the same session and counts the retries", async () => {
   const session = stubSession({
     throws: [
-      { at: 1, error: new Error("connect ECONNREFUSED 127.0.0.1:11182") },
+      { at: 1, error: new Error("connect ECONNREFUSED 127.0.0.1:8080") },
       { at: 2, error: new Error("503 model server busy") },
     ],
     fillOnCall: 3,

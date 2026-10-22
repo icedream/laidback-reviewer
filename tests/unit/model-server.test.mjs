@@ -29,8 +29,8 @@ function fakeFetch({ json, status = 200, hang = false, recorded = [] }) {
 }
 
 test("the api path is stripped to reach the server's own endpoints", () => {
-  assert.equal(serverRoot("http://192.168.1.9:11182/v1"), "http://192.168.1.9:11182");
-  assert.equal(serverRoot("http://192.168.1.9:11182/"), "http://192.168.1.9:11182");
+  assert.equal(serverRoot("http://198.51.100.7:8080/v1"), "http://198.51.100.7:8080");
+  assert.equal(serverRoot("http://198.51.100.7:8080/"), "http://198.51.100.7:8080");
 });
 
 test("strata says what it is doing", async () => {
@@ -119,11 +119,11 @@ test("the provider's URL and key come from the models.json Pi reads", () => {
   try {
     fs.writeFileSync(
       path.join(dir, "models.json"),
-      JSON.stringify({ providers: { "home/strata": { baseUrl: "http://10.0.0.5:11182/v1", apiKey: "secret" } } }),
+      JSON.stringify({ providers: { "home/strata": { baseUrl: "http://198.51.100.9:8080/v1", apiKey: "secret" } } }),
     );
 
     const server = resolveModelServer({ piAgentDir: dir, provider: "home/strata", modelId: "qwen" });
-    assert.equal(server.baseUrl, "http://10.0.0.5:11182/v1");
+    assert.equal(server.baseUrl, "http://198.51.100.9:8080/v1");
     assert.equal(server.apiKey, "secret");
     assert.equal(resolveModelServer({ piAgentDir: dir, provider: "home/absent" }), null);
     assert.equal(resolveModelServer({ piAgentDir: path.join(dir, "nope"), provider: "home/strata" }), null);

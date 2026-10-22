@@ -52,7 +52,7 @@ services:
       - type: bind
         source: ${PWD}/work
         target: /work
-    # The model runs on the LAN (127.0.0.1:11182 by default). The bridge network reaches it; if
+    # The model runs on the LAN (127.0.0.1:8080 by default). The bridge network reaches it; if
     # your routing or VPN setup does not, host networking is the fallback.
     # network_mode: host
     read_only: true

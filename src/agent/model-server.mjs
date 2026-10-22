@@ -10,7 +10,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-/** `http://host:11182/v1` -> `http://host:11182`, where the server's own endpoints live. */
+/** `http://host:8080/v1` -> `http://host:8080`, where the server's own endpoints live. */
 export function serverRoot(baseUrl) {
   return String(baseUrl ?? "").replace(/\/+$/, "").replace(/\/v1$/, "");
 }
