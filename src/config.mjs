@@ -175,12 +175,22 @@ export const CONFIG_SCHEMA = record({
     }),
   }),
   gate: record({
-    channel: enumerated(["slack", "cli", "none"], { def: "cli" }),
+    channel: enumerated(["slack", "telegram", "cli", "none"], { def: "cli" }),
     beforeReview: bool({ def: false }),
     beforePost: bool({ def: true }),
     timeoutHours: integer({ def: 24, min: 1 }),
     onTimeout: enumerated(["hold", "skip"], { def: "hold" }),
     maxPending: integer({ def: 5, min: 1 }),
+    telegram: record({
+      botTokenEnv: string({ def: "TELEGRAM_BOT_TOKEN" }),
+      chatIdEnv: string({ def: "TELEGRAM_CHAT_ID" }),
+      chatId: string({ def: "" }),
+      allowUsersEnv: string({ def: "LAIDBACK_TELEGRAM_USERS" }),
+      timeoutMs: integer({ def: 15_000, min: 1_000 }),
+      // One numbered button per finding, so a ten-finding review still fits on one screen.
+      maxFindingButtons: integer({ def: 8, min: 0, max: 40 }),
+      notify: bool({ def: true }),
+    }),
     slack: record({
       transport: enumerated(["userToken", "botToken", "webhook"], { def: "userToken" }),
       channelEnv: string({ def: "LAIDBACK_SLACK_CHANNEL" }),

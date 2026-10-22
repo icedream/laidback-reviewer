@@ -19,7 +19,7 @@ export function taskGateDecision(prior, askedAt = "") {
   return { kind: prior.state, proceed: false, gateId: prior.id };
 }
 
-export function createGate({ cfg, store, log = () => {}, slack = null }) {
+export function createGate({ cfg, store, log = () => {}, transport = null }) {
   const kind = cfg.gate.channel;
 
   return {
@@ -34,10 +34,6 @@ export function createGate({ cfg, store, log = () => {}, slack = null }) {
     },
 
     /**
-     * Open a gate for a composed review.
-     * Returns { state: "approved" | "queued" | "skipped", gateId }.
-     */
-    /**
      * What the task gate for this head already says, so an approval releases the head instead of being
      * read and forgotten. `requestedAt` is the review request that reopened it, which can overrule an
      * older rejection.
@@ -46,6 +42,10 @@ export function createGate({ cfg, store, log = () => {}, slack = null }) {
       return taskGateDecision(store.latestGateFor({ ...target, stage }), askedAt);
     },
 
+    /**
+     * Open a gate for a composed review.
+     * Returns { state: "approved" | "queued" | "skipped", gateId }.
+     */
     async open({ stage, reviewId, summary, target = null, requestTs = null }) {
       if (!this.requiresApproval(stage)) return { state: "approved", gateId: null };
 
@@ -73,13 +73,13 @@ export function createGate({ cfg, store, log = () => {}, slack = null }) {
         return { state: "queued", gateId };
       }
 
-      if (kind === "slack") {
-        if (!slack) {
-          log("gate.channel=slack needs Slack tokens; check gate.slack.tokenEnv in config.yaml");
+      if (kind === "slack" || kind === "telegram") {
+        if (!transport) {
+          log(`gate.channel=${kind} needs its credentials; check gate.${kind} in config.yaml`);
           return { state: "queued", gateId };
         }
-        const posted = await slack.post(gateId, summary, { reviewId });
-        if (!posted) log(`gate ${gateId} could not be presented in Slack and stays queued`);
+        const posted = await transport.post(gateId, summary, { reviewId });
+        if (!posted) log(`gate ${gateId} could not be presented in ${kind} and stays queued`);
         return { state: "queued", gateId };
       }
 

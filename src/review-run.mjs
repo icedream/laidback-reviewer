@@ -48,7 +48,7 @@ export function toPrView(json, { owner, repo }) {
   };
 }
 
-export async function runReview({ cfg, store, client, task, piAgentDir, artifactDir, slack = null, log = console.error }) {
+export async function runReview({ cfg, store, client, task, piAgentDir, artifactDir, transport = null, log = console.error }) {
   const { owner, repo, pr: prNumber, checkoutDir } = task;
   let approvedTaskGate = null;
   const prJson = await client.getPull(owner, repo, prNumber);
@@ -60,7 +60,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   }
 
   const files = await client.listFiles(owner, repo, prNumber);
-  const gate = createGate({ cfg, store, log, slack });
+  const gate = createGate({ cfg, store, log, transport });
   const target = { owner, repo, pr: prNumber, head_sha: headSha };
   if (gate.requiresApproval("before_review")) {
     // The gate answers one review request, identified by that event's timestamp: approving it releases this

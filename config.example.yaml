@@ -114,6 +114,14 @@ gate:
   timeoutHours: 24
   onTimeout: hold                   # hold = never post
   maxPending: 5
+    # A bot cannot read reactions in an ordinary chat, so the tap target is an inline keyboard.
+    telegram:
+      botTokenEnv: TELEGRAM_BOT_TOKEN   # from @BotFather; keep it in your password manager
+      chatIdEnv: TELEGRAM_CHAT_ID       # numeric chat id; npm run gate:check:telegram -- --discover prints it
+      allowUsersEnv: LAIDBACK_TELEGRAM_USERS
+      maxFindingButtons: 8              # one numbered button per finding
+      notify: true                      # false posts the gate silently
+      timeoutMs: 15000
   slack:
     transport: userToken            # userToken (xoxc+xoxd) | botToken (xoxb) | webhook (post only, decide with src/cli/gate.mjs)
     channelEnv: LAIDBACK_SLACK_CHANNEL

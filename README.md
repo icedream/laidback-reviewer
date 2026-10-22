@@ -296,6 +296,9 @@ disagreement is named in the prompt and in the run record.
 
 ## Slack as the approval gate
 
+`gate.channel` selects one of `slack`, `telegram`, `cli` or `none`. Both messaging transports present the
+same information and read back the same three decisions; they differ only in how you tap.
+
 ```yaml
 gate:
   channel: slack
@@ -345,6 +348,49 @@ It writes to a throwaway state file, so approving its message has no effect on r
 `transport: webhook` the message goes out but nothing can be read back, and the decision is taken with
 `npm run gate <id> approve`. More than `gate.maxPending` gates waiting stops presenting new messages and
 keeps queueing the reviews in the database.
+
+## Telegram as the approval gate
+
+Telegram suits a phone: the bot cannot read reactions in an ordinary chat, so the gate message carries an
+inline keyboard, and a tap comes back as a callback query.
+
+```yaml
+gate:
+  channel: telegram
+  telegram:
+    botTokenEnv: TELEGRAM_BOT_TOKEN
+    chatIdEnv: TELEGRAM_CHAT_ID
+    allowUsersEnv: LAIDBACK_TELEGRAM_USERS
+    maxFindingButtons: 8
+    notify: true            # false posts the gate silently
+```
+
+| variable | what goes in it |
+| --- | --- |
+| `TELEGRAM_BOT_TOKEN` | the token from [@BotFather]; keep it in your password manager and load it into the environment |
+| `TELEGRAM_CHAT_ID` | the numeric chat id. For a DM that is your own user id; a private group has a negative id |
+| `LAIDBACK_TELEGRAM_USERS` | your Telegram user id, comma separated. Empty means anyone who can reach the bot can approve |
+
+Create the bot with @BotFather, turn privacy off if it will live in a group (`/setprivacy`), then message
+it once (`/start`) so it can see a chat. The chat id is the awkward part, so the check command reads it
+for you:
+
+```bash
+npm run gate:check:telegram -- --discover   # prints the chats the bot can see
+npm run gate:check:telegram                 # posts a gate and waits for a tap
+npm run gate:check:telegram -- --chat 123456789 --timeout 60
+npm run gate:check:telegram:docker          # the same run inside the image
+```
+
+A gate message is one message: the pull request as a link, the verdict line in bold, the review body, and
+one numbered line per finding. The numbers are buttons. Tapping one edits the message into that finding's
+full text with a back button, which keeps a twelve-finding review readable on a phone screen instead of
+spreading it over a dozen thread replies. The decision buttons stay available in the finding view, and the
+first decision clears the keyboard so a stale message cannot be tapped twice. Telegram cuts a message at
+4096 characters; a longer summary is truncated, and every finding stays reachable by number.
+
+Taps from an id outside `LAIDBACK_TELEGRAM_USERS` are answered with `not on the allow list` and leave the
+gate pending. Each callback query is acknowledged as it is read, so a restart does not re-decide a gate.
 
 ## Tests
 

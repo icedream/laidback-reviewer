@@ -7,7 +7,7 @@
 import { loadConfig, secret } from "./config.mjs";
 import { createGithubClient } from "./github/client.mjs";
 import { describeScope } from "./github/scope.mjs";
-import { slackGateFromConfig } from "./gate/slack.mjs";
+import { gateTransportFromConfig } from "./gate/transport.mjs";
 import { runLoop } from "./loop.mjs";
 import { openStore } from "./proposal/store.mjs";
 
@@ -49,7 +49,7 @@ async function main() {
     timeoutMs: cfg.github.timeoutMs,
   });
 
-  const slack = slackGateFromConfig({ cfg, store, log: (line) => console.log(`  ${line}`) });
+  const transport = gateTransportFromConfig({ cfg, store, log: (line) => console.log(`  ${line}`) });
 
   startupSummary({ cfg, store });
 
@@ -59,7 +59,7 @@ async function main() {
     stop.current = true;
   });
 
-  await runLoop({ cfg, store, client, slack, stop });
+  await runLoop({ cfg, store, client, transport, stop });
   store.close();
 }
 

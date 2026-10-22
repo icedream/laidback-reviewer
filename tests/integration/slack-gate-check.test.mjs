@@ -316,7 +316,7 @@ test("every inline comment is posted in the thread, and none of them decides the
     };
     const reviewId = store.saveReview({ owner: "acme", repo: "svc", pr: 7, head_sha: "abcdef0123456789", composed, dryRun: false, notes: [] });
     const slackGate = createSlackGate({ cfg, store, token: "xoxc-test", cookie: "xoxd-test", log: () => {} });
-    const gate = createGate({ cfg, store, slack: slackGate, log: () => {} });
+    const gate = createGate({ cfg, store, transport: slackGate, log: () => {} });
     const opened = await gate.open({
       stage: "before_post",
       reviewId,
@@ -395,7 +395,7 @@ test("gate.mjs sync reads a Slack decision into the store, which is what post-ap
     const gate = createGate({
       cfg,
       store,
-      slack: createSlackGate({ cfg, store, token: "xoxc-test", cookie: "xoxd-test", log: () => {} }),
+      transport: createSlackGate({ cfg, store, token: "xoxc-test", cookie: "xoxd-test", log: () => {} }),
       log: () => {},
     });
     const opened = await gate.open({
@@ -436,7 +436,7 @@ test("the read marker is put back only where a self-posted gate would go unnotic
       const gate = createGate({
         cfg,
         store,
-        slack: createSlackGate({ cfg, store, token: "xoxc-test", cookie: "xoxd-test", log: () => {} }),
+        transport: createSlackGate({ cfg, store, token: "xoxc-test", cookie: "xoxd-test", log: () => {} }),
         log: () => {},
       });
       await gate.open({

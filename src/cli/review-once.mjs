@@ -13,7 +13,7 @@ import { pathToFileURL } from "node:url";
 import { loadConfig, secret } from "../config.mjs";
 import { createGithubClient } from "../github/client.mjs";
 import { matchRepository } from "../github/scope.mjs";
-import { slackGateFromConfig } from "../gate/slack.mjs";
+import { gateTransportFromConfig } from "../gate/transport.mjs";
 import { openStore } from "../proposal/store.mjs";
 import { runReview } from "../review-run.mjs";
 import { prepareCheckout, releaseWorktree } from "../checkout.mjs";
@@ -92,7 +92,7 @@ async function main() {
       cfg,
       store,
       client,
-      slack: slackGateFromConfig({ cfg, store, log: (line) => console.error(line) }),
+      transport: gateTransportFromConfig({ cfg, store, log: (line) => console.error(line) }),
       task: { owner, repo, pr, manual: true, checkoutDir: requestedDir || checkout.dir, compareDir: checkout?.compareDir, runId: checkout?.runId },
       piAgentDir: process.env.PI_CODING_AGENT_DIR ?? ".pi/agent",
       artifactDir: args.artifacts ?? process.env.LAIDBACK_ARTIFACT_DIR ?? "data/reviews",

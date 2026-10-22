@@ -195,7 +195,7 @@ export async function setupReviewRun({ overrides = {}, scriptOptions = {}, turns
         cfg,
         store,
         client,
-        slack: null,
+        transport: null,
         piAgentDir: agentDir,
         artifactDir: path.join(dir, "reviews"),
         log: (line) => logLines.push(String(line)),

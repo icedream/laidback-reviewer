@@ -12,7 +12,7 @@
 
 import fs from "node:fs";
 import { loadConfig } from "../config.mjs";
-import { slackGateFromConfig } from "../gate/slack.mjs";
+import { gateTransportFromConfig } from "../gate/transport.mjs";
 import { openStore } from "../proposal/store.mjs";
 
 const STATE_DB = process.env.LAIDBACK_STATE_DB || "data/state.db";
@@ -39,9 +39,9 @@ async function main() {
     // A decision taken in Slack only reaches the store when someone reads the thread back. Without the
     // poll loop running, this is what turns a reaction into an approval that post-approved can act on.
     const cfg = loadConfig();
-    const slack = slackGateFromConfig({ cfg, store, log: (line) => console.log(line) });
-    if (!slack) usage("sync reads the gate channel: gate.channel=slack and gate.slack.tokenEnv must be set");
-    const applied = await slack.readDecisions();
+    const transport = gateTransportFromConfig({ cfg, store, log: (line) => console.log(line) });
+    if (!transport) usage(`sync reads the gate channel: gate.channel=${cfg.gate.channel} needs its credentials, e.g. gate.telegram.botTokenEnv and gate.telegram.chatIdEnv`);
+    const applied = await transport.readDecisions();
     if (!applied.length) console.log("no new decisions in the gate threads");
     for (const gate of applied) console.log(`gate ${gate.id} -> ${gate.state} by ${gate.decided_by}${gate.reason ? ` (${gate.reason})` : ""}`);
     return;

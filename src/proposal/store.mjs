@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS gates (
   state TEXT NOT NULL,
   summary TEXT NOT NULL,
   slack_ts TEXT,
+  channel_msg_id TEXT,
   owner TEXT,
   repo TEXT,
   pr INTEGER,
@@ -114,7 +115,7 @@ export function openStore(path) {
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec(SCHEMA);
   // Columns added after the first release: exec() above is a no-op on an existing database.
-  for (const column of ["slack_ts TEXT", "comment_ts TEXT"]) {
+  for (const column of ["slack_ts TEXT", "comment_ts TEXT", "channel_msg_id TEXT"]) {
     try {
       db.exec(`ALTER TABLE gates ADD COLUMN ${column}`);
     } catch {
@@ -233,6 +234,7 @@ export function createStore(db) {
     getGate: db.prepare(`SELECT * FROM gates WHERE id = @id`),
     setSlackTs: db.prepare(`UPDATE gates SET slack_ts = @ts WHERE id = @id`),
     setCommentTs: db.prepare(`UPDATE gates SET comment_ts = @ts WHERE id = @id`),
+    setChannelMsgId: db.prepare(`UPDATE gates SET channel_msg_id = @msg_id WHERE id = @id`),
     pendingGates: db.prepare(`SELECT * FROM gates WHERE state = 'pending' ORDER BY created_at`),
     decideGate: db.prepare(
       `UPDATE gates SET state = @state, decided_at = @now, decided_by = @decided_by, reason = @reason WHERE id = @id`,
@@ -369,6 +371,7 @@ export function createStore(db) {
     },
     getGate: (id) => statements.getGate.get({ id }),
     setSlackTs: ({ id, ts }) => statements.setSlackTs.run({ id, ts }),
+    setChannelMsgId: ({ id, msg_id }) => statements.setChannelMsgId.run({ id, msg_id }),
     /** Replies the gate itself posted, so reading a thread never mistakes one for a decision. */
     recordCommentTs: ({ id, tsList }) => statements.setCommentTs.run({ id, ts: JSON.stringify(tsList) }),
     pendingGates: () => statements.pendingGates.all(),

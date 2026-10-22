@@ -26,6 +26,9 @@ services:
       - SLACK_MCP_XOXB_TOKEN
       - SLACK_MCP_XOXC_TOKEN
       - SLACK_MCP_XOXD_TOKEN
+      - TELEGRAM_BOT_TOKEN
+      - TELEGRAM_CHAT_ID
+      - LAIDBACK_TELEGRAM_USERS
       - GONOSUMDB
       # Pinned rather than passed through: a host GOPATH names a directory that does not exist in the
       # container, and the caches the image puts under /data are what survive a rebuild.

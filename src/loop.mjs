@@ -19,15 +19,15 @@ export async function cycle({
   cfg,
   store,
   client,
-  slack,
+  transport,
   piAgentDir = process.env.PI_CODING_AGENT_DIR ?? ".pi/agent",
   artifactDir = process.env.LAIDBACK_ARTIFACT_DIR ?? "data/reviews",
   log = (line) => console.log(line),
   logErr = (line) => console.error(line),
 }) {
-  if (slack) {
-    slack.expire();
-    const decided = await slack.readDecisions();
+  if (transport) {
+    transport?.expire();
+    const decided = await transport.readDecisions();
     for (const gate of decided) log(`gate ${gate.id} ${gate.state} by ${gate.decided_by}${gate.reason ? ` (${gate.reason})` : ""}`);
   }
 
@@ -99,7 +99,7 @@ export async function cycle({
         cfg,
         store,
         client,
-        slack,
+        transport,
         task: { owner: candidate.owner, repo: candidate.repo, pr: candidate.pr, checkoutDir: checkout.dir, compareDir: checkout.compareDir, runId: checkout.runId, reRequest: candidate.reRequest ?? null, requestTs: candidate.requestTs ?? null, resumeScratchKept: Boolean(deferral?.run_id && checkout.runId === deferral.run_id), resumeSessionFile: deferral?.session_file ?? null, resumedAt: deferral?.until_at ?? "" },
         piAgentDir,
         artifactDir,
@@ -138,11 +138,11 @@ export async function cycle({
   }
 }
 
-export async function runLoop({ cfg, store, client, slack, stop = { current: false } }) {
+export async function runLoop({ cfg, store, client, transport, stop = { current: false } }) {
   while (!stop.current) {
     const started = Date.now();
     try {
-      await cycle({ cfg, store, client, slack });
+      await cycle({ cfg, store, client, transport });
     } catch (error) {
       console.error(`cycle failed: ${error.message}`);
     }

@@ -100,7 +100,7 @@ test("a full pending queue stops presenting new gates but keeps queueing them", 
     const cfg = { ...slackCfg({ transport: "cli" }), tools: { allowHosts: [] } };
     cfg.gate.maxPending = 2;
     const logs = [];
-    const gate = createGate({ cfg, store, log: (line) => logs.push(line), slack: null });
+    const gate = createGate({ cfg, store, log: (line) => logs.push(line), transport: null });
 
     const first = await gate.open({ stage: "before_post", reviewId: null, summary: "one" });
     const second = await gate.open({ stage: "before_post", reviewId: null, summary: "two" });
