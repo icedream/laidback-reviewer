@@ -134,8 +134,7 @@ export function sweepScratch({ cfg, keepRunIds = [], olderThanMs, now = Date.now
         continue;
       }
       if (age < olderThanMs) continue;
-      fs.rmSync(full, { recursive: true, force: true });
-      removed.push(full);
+      if (removeTree(full, { log })) removed.push(full);
     }
   }
   if (removed.length) {
@@ -164,17 +163,63 @@ function safeEntries(dir) {
   }
 }
 
-export function releaseWorktree({ cfg, dir, cachedClone, compareDir, log = () => {} }) {
-  if (cachedClone) {
-    try {
-      git(["worktree", "remove", "--force", dir], { cwd: cachedClone, cfg });
-    } catch (error) {
-      log(`worktree remove failed for ${dir}: ${error.message}`);
+/**
+ * Remove a tree a review left behind, and succeed at it. Go unpacks its module cache read-only, with no
+ * owner-write bit on the directories, so a plain recursive unlink fails partway with EACCES and leaves the
+ * rest of the tree behind for the next run to mistake for its own.
+ */
+export function removeTree(dir, { log = () => {} } = {}) {
+  if (!fs.existsSync(dir)) return true;
+  try {
+    fs.rmSync(dir, { recursive: true, force: true });
+    return true;
+  } catch (error) {
+    if (error?.code !== "EACCES" && error?.code !== "EPERM") {
+      log(`could not remove ${dir}: ${error.message}`);
+      return false;
     }
   }
-  // Fetched comparisons are the biggest thing a run leaves behind, and nothing after this run may read
-  // it as if it were its own.
-  if (compareDir) fs.rmSync(compareDir, { recursive: true, force: true });
+  try {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true, recursive: true })) {
+      const full = path.join(entry.parentPath ?? entry.path ?? dir, entry.name);
+      try {
+        fs.chmodSync(full, entry.isDirectory() ? 0o700 : 0o600);
+      } catch {
+        // already gone, or not ours to change
+      }
+    }
+  } catch {
+    // the walk failed; the retry below reports what actually happened
+  }
+  try {
+    fs.rmSync(dir, { recursive: true, force: true });
+    return true;
+  } catch (error) {
+    log(`could not remove ${dir} even after opening its permissions: ${error.message}`);
+    return false;
+  }
+}
+
+/**
+ * Remove a review's worktree and its comparison copies. Cleanup never fails a cycle: by the time this
+ * runs the review is composed, stored and possibly queued for the gate, and a stuck directory is a
+ * smaller problem than reporting a run that worked as a failure.
+ */
+export function releaseWorktree({ cfg, dir, cachedClone, compareDir, log = () => {} }) {
+  try {
+    if (cachedClone) {
+      try {
+        git(["worktree", "remove", "--force", dir], { cwd: cachedClone, cfg });
+      } catch (error) {
+        log(`worktree remove failed for ${dir}: ${error.message}`);
+      }
+    }
+    // Fetched comparisons are the biggest thing a run leaves behind, and nothing after this run may read
+    // it as if it were its own.
+    if (compareDir) removeTree(compareDir, { log });
+  } catch (error) {
+    log(`cleanup after ${dir} did not finish: ${error.message}`);
+  }
 }
 
 /**

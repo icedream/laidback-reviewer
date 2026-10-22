@@ -11,7 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { comparisonDir, newRunId, releaseWorktree, sweepScratch, worktreeDir } from "../../src/checkout.mjs";
+import { comparisonDir, newRunId, releaseWorktree, removeTree, sweepScratch, worktreeDir } from "../../src/checkout.mjs";
 
 const cfg = { checkout: { mode: "clone", scratch: "/work/scratch", compareDir: "/work/scratch/refs" } };
 
@@ -80,6 +80,31 @@ test("scratch nothing can resume is swept, scratch a deferral keeps is not", () 
     assert.ok(!fs.existsSync(refs), "the comparison copies go with the tree that made them");
     assert.equal(removed.length, 2);
   } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a read-only module cache is removable, and cleanup does not throw", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "laidback-readonly-"));
+  const cache = path.join(dir, "refs", "gomodcache");
+  try {
+    // How Go lays its cache out: directories without the owner-write bit, files read-only.
+    const module = path.join(cache, "go.uber.org", "multierr@v1.11.0", ".github");
+    fs.mkdirSync(module, { recursive: true });
+    fs.writeFileSync(path.join(module, "workflows.yaml"), "name: ci\n");
+    fs.chmodSync(path.join(module, "workflows.yaml"), 0o444);
+    fs.chmodSync(module, 0o555);
+    fs.chmodSync(path.join(cache, "go.uber.org", "multierr@v1.11.0"), 0o555);
+
+    assert.equal(removeTree(cache), true, "the chmod pass lets the unlink finish");
+    assert.equal(fs.existsSync(cache), false);
+
+    fs.mkdirSync(module, { recursive: true });
+    fs.chmodSync(path.dirname(module), 0o555);
+    releaseWorktree({ cfg, dir: path.join(dir, "wt"), cachedClone: null, compareDir: cache, log: () => {} });
+    assert.equal(fs.existsSync(cache), false, "release cleans up and never throws");
+  } finally {
+    fs.chmodSync(dir, 0o700);
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });

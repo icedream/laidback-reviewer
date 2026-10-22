@@ -101,6 +101,8 @@ export function createGithubClient({ baseUrl = "https://api.github.com", token, 
     },
     listReviews: (owner, repo, pr) => request("GET", `${repoPath(owner, repo)}/pulls/${pr}/reviews?per_page=100`),
     listInlineComments: (owner, repo, pr) => request("GET", `${repoPath(owner, repo)}/pulls/${pr}/comments?per_page=100`),
+    /** The conversation on the PR: questions the author answered, decisions the review should not re-litigate. */
+    listDiscussionComments: (owner, repo, pr) => request("GET", `${repoPath(owner, repo)}/issues/${pr}/comments?per_page=100`),
     /** Open and closed PRs whose head branch is `branch`; how a stack link is found. */
     listPullsForHead: (owner, repo, branch) =>
       request("GET", `${repoPath(owner, repo)}/pulls?head=${encodeURIComponent(`${owner}:${branch}`)}&state=all&per_page=5`),

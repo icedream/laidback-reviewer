@@ -73,22 +73,22 @@ test("what is already on the PR is named, so the review does not repeat it", () 
     prior: {
       reviews: [{ id: 1, user: { login: "maintainer" }, state: "CHANGES_REQUESTED" }],
       comments: [
-        { id: 2, path: "internal/server/server.go", line: 88, body: "This swallows the context cancellation error.\n\nRetry with a timeout." },
-        { id: 3, path: "go.mod", line: 12, body: "x".repeat(900) },
+        { id: 2, path: "internal/server/server.go", line: 88, user: { login: "maintainer" }, body: "This swallows the context cancellation error.\n\nRetry with a timeout." },
+        { id: 3, path: "go.mod", line: 12, user: { login: "maintainer" }, body: "x".repeat(900) },
       ],
     },
   });
 
-  assert.match(prompt, /Already on this PR \(do not repeat these findings\):/);
-  assert.match(prompt, /review 1 by maintainer \(CHANGES_REQUESTED\)/);
-  assert.match(prompt, /inline on internal\/server\/server\.go:88: This swallows the context cancellation error\. Retry with a timeout\./);
+  assert.match(prompt, /Review history of this PR as GitHub holds it/);
+  assert.match(prompt, /review by maintainer \(CHANGES_REQUESTED\)/);
+  assert.match(prompt, /inline on internal\/server\/server\.go:88 by maintainer: This swallows the context cancellation error\. Retry with a timeout\./);
   assert.ok(prompt.includes("x".repeat(600)) && !prompt.includes("x".repeat(601)), "a long body is clipped, not pasted whole");
 });
 
 test("a PR nobody has looked at says so", () => {
   const prompt = buildTaskPrompt({ pr, files, checkoutDir: "/work/x", headSha: "abcdef0123456789", prior: { reviews: [], comments: [] } });
 
-  assert.match(prompt, /No review and no inline comment exists on this PR yet\./);
+  assert.match(prompt, /No review, no inline comment and no discussion is on this PR yet/);
 });
 
 test("a re-review is named, so the model reports what changed instead of repeating itself", () => {
@@ -101,7 +101,7 @@ test("a re-review is named, so the model reports what changed instead of repeati
     reRequest: { askedAt: "2026-04-03T11:24:00Z", handledAt: "2026-04-01T00:00:00.000Z", rereviews: 1 },
   });
 
-  assert.match(prompt, /Already on this PR/);
+  assert.match(prompt, /Review history of this PR/);
   assert.match(prompt, /Re-review: the review was requested again at 2026-04-03T11:24:00Z[\s\S]*earlier pass of this[\s\S]*same head at 2026-04-01T00:00:00.000Z/);
   assert.match(prompt, /say what has changed since, and whether the earlier concerns still stand/);
 });
@@ -129,12 +129,31 @@ test("what is already on the PR includes what the earlier review actually said",
     headSha: pr.head.sha,
     prior: {
       reviews: [{ id: 900, user: { login: "octocat" }, state: "CHANGES_REQUESTED", body: "The grpc dependency is re-pinned below trunk, which loses the GHSA fix.\nSecond paragraph of the same finding." }],
-      comments: [{ path: "go.mod", line: 126, body: "x".repeat(900) }],
+      comments: [{ path: "go.mod", line: 126, user: { login: "octocat" }, body: "x".repeat(900) }],
     },
   });
   assert.match(prompt, /The grpc dependency is re-pinned below trunk/);
   assert.ok(prompt.includes("Second paragraph of the same finding."), "author and state alone do not stop a repeat");
-  assert.match(prompt, /inline on go\.mod:126: xxx+/, "inline bodies carry, clipped");
+  assert.match(prompt, /inline on go\.mod:126 by octocat: xxx+/, "inline bodies carry, clipped");
   const longest = (prompt.match(/x+/g) ?? []).reduce((max, run) => Math.max(max, run.length), 0);
   assert.ok(longest <= 600, `expected the inline body clipped, saw a run of ${longest}`);
+});
+
+test("the history names who said what, and how to treat it", () => {
+  const prompt = buildTaskPrompt({
+    pr,
+    files,
+    checkoutDir: "/work/x",
+    headSha: pr.head.sha,
+    prior: {
+      reviews: [{ id: 1, user: { login: "octocat" }, state: "CHANGES_REQUESTED", body: "grpc is re-pinned below trunk, which drops the GHSA fix." }],
+      comments: [{ id: 2, path: "go.mod", line: 126, user: { login: "octocat" }, body: "v1.83.1 here, trunk is on v1.83.2." }],
+      discussion: [{ id: 3, user: { login: "author" }, body: "Rebasing once the other bump lands." }],
+    },
+  });
+  assert.match(prompt, /review by octocat \(CHANGES_REQUESTED\): grpc is re-pinned below trunk/);
+  assert.match(prompt, /inline on go\.mod:126 by octocat: v1\.83\.1 here, trunk is on v1\.83\.2\./);
+  assert.match(prompt, /comment by author: Rebasing once the other bump lands\./);
+  assert.match(prompt, /A finding already on this PR is not a new one/);
+  assert.match(prompt, /Something the author answered stays answered/);
 });

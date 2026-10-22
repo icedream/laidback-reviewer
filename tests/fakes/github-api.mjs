@@ -104,6 +104,10 @@ export function createFakeGithubApi({ fixture, me = "octocat", token = "test-tok
       handle: () => (fixture.existingComments ?? []),
     },
     {
+      match: (method, p) => method === "GET" && p.startsWith(`${apiBase}/issues/${fixture.pr}/comments`),
+      handle: () => (fixture.existingDiscussion ?? []),
+    },
+    {
       match: (method, p) => method === "GET" && p.startsWith(`${apiBase}/issues/${fixture.pr}/timeline`),
       handle: () => (fixture.timeline ?? timeline),
     },

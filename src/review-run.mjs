@@ -84,13 +84,14 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     approvedTaskGate = taskGate.gateId;
   }
 
-  const [reviews, comments] = await Promise.all([
+  const [reviews, comments, discussion] = await Promise.all([
     client.listReviews(owner, repo, prNumber),
     client.listInlineComments(owner, repo, prNumber),
+    client.listDiscussionComments(owner, repo, prNumber),
   ]);
   // What the pass starts knowing is the first thing to look at when a re-review appears to be exploring
   // the repository from the beginning.
-  log(`already on the PR: ${reviews.length} review(s), ${comments.length} inline comment(s)`);
+  log(`already on the PR: ${reviews.length} review(s), ${comments.length} inline comment(s), ${discussion.length} discussion comment(s)`);
 
   // A head is reviewed once. What reopens it is a fresh review request, carried in by discovery, or a
   // direct invocation, which is the operator asking for another pass by hand.
@@ -143,7 +144,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     files,
     checkoutDir,
     headSha,
-    prior: { reviews, comments },
+    prior: { reviews, comments, discussion },
     reRequest: task.reRequest ?? null,
     compareDir,
     writableRoots,

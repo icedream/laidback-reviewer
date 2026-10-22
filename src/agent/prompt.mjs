@@ -70,19 +70,35 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, r
 
   if (lint) sections.push(lintBlock(lint));
 
-  if (prior.reviews?.length || prior.comments?.length) {
-    const clip = (text, max) => String(text ?? "").replace(/\s+/g, " ").trim().slice(0, max);
-    const existing = prior.reviews.flatMap((review) => {
-      // The body is the finding. Author and state alone tell the agent a review exists, which is how it
-      // ends up reporting the same issue a second time on the same PR.
-      const line = `review ${review.id} by ${review.user?.login} (${review.state})`;
+  const clip = (text, max) => String(text ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+  if (prior.reviews?.length || prior.comments?.length || prior.discussion?.length) {
+    const history = [];
+    for (const review of prior.reviews ?? []) {
+      // The body is the finding. Author and state alone say a review exists, which is how the same issue
+      // gets reported twice on one PR.
+      const line = `review by ${review.user?.login ?? "?"} (${review.state})`;
       const body = clip(review.body, 2_000);
-      return body ? [`${line}:`, `  ${body}`] : [line];
-    });
-    existing.push(...prior.comments.map((comment) => `inline on ${comment.path}:${comment.line}: ${clip(comment.body, 600)}`));
-    sections.push(["Already on this PR (do not repeat these findings):", ...existing].join("\n"));
+      history.push(body ? `${line}: ${body}` : line);
+    }
+    for (const comment of prior.comments ?? []) {
+      history.push(`inline on ${comment.path}:${comment.line} by ${comment.user?.login ?? "?"}: ${clip(comment.body, 600)}`);
+    }
+    for (const talk of prior.discussion ?? []) {
+      history.push(`comment by ${talk.user?.login ?? "?"}: ${clip(talk.body, 600)}`);
+    }
+    sections.push(
+      [
+        "Review history of this PR as GitHub holds it. Read it before reviewing: it is the state of the",
+        "discussion, not material to summarise and not a starting point for a fresh pass over the same ground.",
+        ...history,
+        "",
+        "A finding already on this PR is not a new one: leave it out, or say it still stands at this head and",
+        "name where it was raised. Something the author answered stays answered unless this head changes it,",
+        "and re-opening it costs the reader a second pass over the same argument.",
+      ].join("\n"),
+    );
   } else {
-    sections.push("No review and no inline comment exists on this PR yet.");
+    sections.push("No review, no inline comment and no discussion is on this PR yet, so nothing has been said to the author about this head.");
   }
 
   if (reRequest) {
