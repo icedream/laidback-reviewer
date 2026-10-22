@@ -30,7 +30,7 @@ function merge(base, extra) {
 
 export function baseConfig({ dir }) {
   return {
-    github: { me: "octocat", tokenEnv: "LAIDBACK_TEST_TOKEN", orgs: ["example"], repos: [], deny: [] },
+    github: { me: "octocat", tokenEnv: "LAIDBACK_TEST_TOKEN", orgs: ["example"], repos: [], deny: [], cursorOverlapMs: 120_000 },
     trigger: { mode: "review_requested", policy: "any", skipDraft: true },
     reviews: {
       rereviewOnPush: false,

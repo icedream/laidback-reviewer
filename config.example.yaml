@@ -10,6 +10,7 @@ github:
   pollIntervalMs: 120000
   timeoutMs: 30000                  # a GitHub call that never answers is cut off, not waited on
   searchAgeHours: 24
+  cursorOverlapMs: 120000            # re-read this much of the window each poll
 
 trigger:
   mode: review_requested            # review_requested | assigned | both; a request to a team of mine never counts

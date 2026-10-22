@@ -145,14 +145,18 @@ export function repositoryFromSearchHit(item) {
  */
 export async function findCandidates({ cfg, client, store, now = new Date() }) {
   const cursorIso = store.getMeta("search_updated_at") ?? new Date(now.getTime() - cfg.github.searchAgeHours * 3600_000).toISOString();
+  // GitHub's `updated:` qualifier and the stored cursor meet at second precision, and a PR can be updated
+  // in the same second the cursor records. Re-reading a short overlap costs one repeated look at heads
+  // already in `seen` and loses no PR at the boundary.
+  const sinceIso = new Date(Date.parse(cursorIso) - cfg.github.cursorOverlapMs).toISOString();
   // Search cannot OR qualifiers: one query per mode, review requests first.
   const modes = cfg.trigger.mode === "both" ? ["review_requested", "assigned"] : [cfg.trigger.mode];
   const hits = [];
   for (const kind of modes) {
     const search =
       kind === "assigned"
-        ? await client.searchAssigned({ me: cfg.github.me, sinceIso: cursorIso })
-        : await client.searchReviewRequested({ me: cfg.github.me, sinceIso: cursorIso });
+        ? await client.searchAssigned({ me: cfg.github.me, sinceIso })
+        : await client.searchReviewRequested({ me: cfg.github.me, sinceIso });
     for (const item of search.items ?? []) hits.push({ item, kind });
   }
 

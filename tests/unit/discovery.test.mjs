@@ -2,6 +2,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import { baseConfig } from "../helpers/run-env.mjs";
 import {
   classifyTrigger,
   isAssignedTo,
@@ -9,6 +10,7 @@ import {
   matchedCodeowners,
   parseCodeowners,
   repositoryFromSearchHit,
+  findCandidates,
 } from "../../src/discovery.mjs";
 
 const me = "octocat";
@@ -183,4 +185,28 @@ test("search hits resolve to owner, repo and number", () => {
     { owner: "example", repo: "orders-svc", number: 143 },
   );
   assert.equal(repositoryFromSearchHit({ number: 1 }), null);
+});
+
+test("the search window reaches back over the stored cursor", async () => {
+  // GitHub's `updated:` qualifier and the cursor meet at second precision, so a PR can be updated in the
+  // same second the cursor records and then fall out of the next window.
+  const cfg = baseConfig({ dir: "/tmp" });
+  const searches = [];
+  const client = {
+    searchReviewRequested: async ({ sinceIso }) => {
+      searches.push(sinceIso);
+      return { items: [] };
+    },
+    searchAssigned: async ({ sinceIso }) => {
+      searches.push(sinceIso);
+      return { items: [] };
+    },
+  };
+  const store = { getMeta: () => "2026-04-03T11:24:00.000Z", setMeta: () => {} };
+
+  const found = await findCandidates({ cfg, client, store, now: new Date("2026-04-03T12:00:00Z") });
+
+  assert.equal(cfg.github.cursorOverlapMs, 120_000);
+  assert.deepEqual(searches, ["2026-04-03T11:22:00.000Z"], "the window overlaps the boundary");
+  assert.equal(found.cursorIso, "2026-04-03T11:24:00.000Z", "the stored cursor does not drift backwards");
 });

@@ -26,6 +26,9 @@ export const CONFIG_SCHEMA = record({
     pollIntervalMs: integer({ def: 120_000, min: 15_000 }),
     timeoutMs: integer({ def: 30_000, min: 1_000 }),
     searchAgeHours: integer({ def: 24, min: 1 }),
+    // How far back the search window reaches past the stored cursor, so a PR updated in the same second as
+    // the cursor was written is not lost between polls.
+    cursorOverlapMs: integer({ def: 120_000, min: 0 }),
   }),
   trigger: record({
     // A team request never qualifies under any mode: it lands on requested_teams, not the reviewer list.
