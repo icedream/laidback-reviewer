@@ -330,3 +330,64 @@ test("every inline comment is posted in the thread, and none of them decides the
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+/** Run a CLI in a child while the fake Slack answers from this process. */
+function runCli(args, env) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, args, { cwd: ROOT, env, encoding: "utf8" });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    const timer = setTimeout(() => child.kill("SIGKILL"), 20_000);
+    child.on("error", reject);
+    child.on("close", (status) => {
+      clearTimeout(timer);
+      resolve({ status, stdout, stderr });
+    });
+  });
+}
+
+test("gate.mjs sync reads a Slack decision into the store, which is what post-approved needs", async () => {
+  const slack = fakeSlack();
+  const apiBaseUrl = await slack.start();
+  const { dir, config } = tempEnv({ apiBaseUrl }, { dryRun: false });
+  const db = path.join(dir, "sync.db");
+  const env = { ...process.env, LAIDBACK_CONFIG: config, LAIDBACK_STATE_DB: db, LAIDBACK_SLACK_USERS: "U_ME", GATECHECK_XOXC: "xoxc-test", GATECHECK_XOXD: "xoxd-test" };
+  const cfg = loadConfig({ path: config, env });
+  const store = openStore(db);
+  try {
+    const composed = {
+      verdict: "request_changes",
+      action: "submit",
+      event: "REQUEST_CHANGES",
+      payload: { body: "one thing blocks this", comments: [] },
+      proposalBody: "",
+      proposalBlocking: [],
+    };
+    const reviewId = store.saveReview({ owner: "acme", repo: "svc", pr: 9, head_sha: "abc1234567890", composed, dryRun: false, notes: [] });
+    const gate = createGate({
+      cfg,
+      store,
+      slack: createSlackGate({ cfg, store, token: "xoxc-test", cookie: "xoxd-test", log: () => {} }),
+      log: () => {},
+    });
+    const opened = await gate.open({
+      stage: "before_post",
+      reviewId,
+      summary: renderGateSummary({ pr: { html_url: "https://github.com/acme/svc/pull/9" }, headSha: "abc1234567890", composed, notes: [], decisions: ["verdict request_changes -> submit"] }),
+    });
+    assert.equal(store.getGate(opened.gateId).state, "pending", "the decision is in Slack, not in the store yet");
+
+    const run = await runCli(["src/cli/gate.mjs", "sync"], env);
+
+    assert.equal(run.status, 0, run.stdout + run.stderr);
+    assert.match(run.stdout, new RegExp(`gate ${opened.gateId} -> approved by U_ME`));
+    assert.equal(store.getGate(opened.gateId).state, "approved");
+    assert.deepEqual(store.approvedUnpostedReviews(), [reviewId], "post-approved now has something to send");
+  } finally {
+    store.close();
+    slack.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

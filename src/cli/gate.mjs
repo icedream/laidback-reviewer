@@ -3,6 +3,7 @@
  * Decide a queued review gate from the command line.
  *
  * node src/cli/gate.mjs list
+ * node src/cli/gate.mjs sync
  * node src/cli/gate.mjs show <id>
  * node src/cli/gate.mjs approve <id>
  * node src/cli/gate.mjs reject <id> [reason]
@@ -10,17 +11,19 @@
  */
 
 import fs from "node:fs";
+import { loadConfig } from "../config.mjs";
+import { slackGateFromConfig } from "../gate/slack.mjs";
 import { openStore } from "../proposal/store.mjs";
 
 const STATE_DB = process.env.LAIDBACK_STATE_DB || "data/state.db";
 
 function usage(message) {
   if (message) console.error(message);
-  console.error("usage: node src/cli/gate.mjs list | show <id> | approve <id> | reject <id> [reason] | hold <id>");
+  console.error("usage: node src/cli/gate.mjs list | sync | show <id> | approve <id> | reject <id> [reason] | hold <id>");
   process.exit(message ? 1 : 0);
 }
 
-function main() {
+async function main() {
   if (!fs.existsSync(STATE_DB)) usage(`no state database at ${STATE_DB}: the listener has not run yet`);
   const store = openStore(STATE_DB);
   const [command, id, ...rest] = process.argv.slice(2);
@@ -29,6 +32,18 @@ function main() {
     const pending = store.pendingGates();
     if (!pending.length) console.log("no pending gates");
     for (const gate of pending) console.log(`${gate.id}  ${gate.kind}  ${gate.created_at}  review=${gate.review_id ?? "-"}`);
+    return;
+  }
+
+  if (command === "sync") {
+    // A decision taken in Slack only reaches the store when someone reads the thread back. Without the
+    // poll loop running, this is what turns a reaction into an approval that post-approved can act on.
+    const cfg = loadConfig();
+    const slack = slackGateFromConfig({ cfg, store, log: (line) => console.log(line) });
+    if (!slack) usage("sync reads the gate channel: gate.channel=slack and gate.slack.tokenEnv must be set");
+    const applied = await slack.readDecisions();
+    if (!applied.length) console.log("no new decisions in the gate threads");
+    for (const gate of applied) console.log(`gate ${gate.id} -> ${gate.state} by ${gate.decided_by}${gate.reason ? ` (${gate.reason})` : ""}`);
     return;
   }
 
@@ -64,4 +79,7 @@ function main() {
   usage(`unknown command ${command}`);
 }
 
-main();
+main().catch((error) => {
+  console.error(error.stack ?? String(error));
+  process.exit(1);
+});
