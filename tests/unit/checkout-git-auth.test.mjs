@@ -19,10 +19,21 @@ test("a gitconfig left over from an older run is repaired, not kept", () => {
   try {
     configureGitAuth({ cfg: { github: { tokenEnv: "LAIDBACK_GH_TOKEN" }, checkout: { gitConfig: file } }, log() {} });
     const written = fs.readFileSync(file, "utf8");
-    assert.match(written, /helper = !f\(\)/, "the value is the command, not key=value");
+    assert.match(written, /helper = "!f\(\)/, "the value is the quoted command, not key=value");
     assert.ok(!/helper = credential\.helper=/.test(written));
     const [, helperValue] = credentialHelperArgs("LAIDBACK_GH_TOKEN");
-    assert.ok(written.includes(helperValue.replace(/^credential\.helper=/, "")), "the helper is exactly what this run would have written");
+    const helper = helperValue.replace(/^credential\.helper=/, "");
+    assert.ok(written.includes(`"${helper}"`), "the helper is quoted, or git reads the ; as a comment");
+
+    // What the repository's own Makefile and `go mod download` see: git's parser, not our writer.
+    process.env.LAIDBACK_GH_TOKEN = "probe-token";
+    const filled = execFileSync("git", ["credential", "fill"], {
+      input: "protocol=https\nhost=github.com\n\n",
+      encoding: "utf8",
+      env: { ...process.env, GIT_CONFIG_GLOBAL: file, GIT_TERMINAL_PROMPT: "0" },
+    });
+    assert.match(filled, /username=x-access-token/);
+    assert.match(filled, /password=probe-token/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

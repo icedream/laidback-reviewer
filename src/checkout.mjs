@@ -128,7 +128,9 @@ export function configureGitAuth({ cfg, dir, log = () => {} }) {
   // `git clone`, or a tool the repository's own Makefile calls.
   process.env.GIT_CONFIG_GLOBAL = path.resolve(cfg.checkout.gitConfig || ".pi/gitconfig");
   fs.mkdirSync(path.dirname(process.env.GIT_CONFIG_GLOBAL), { recursive: true });
-  const desired = `[credential]\n\thelper = ${helper}\n[url "https://github.com/"]\n\tinsteadOf = git@github.com:\n`;
+  // Quoted: an unquoted `;` is a comment to git's config parser, so the helper is read as
+  // `f(){ echo username=x-access-token` and every shell-out fails with a shell syntax error.
+  const desired = `[credential]\n\thelper = "${helper}"\n[url "https://github.com/"]\n\tinsteadOf = git@github.com:\n`;
   // Rewrite whenever the file disagrees with this run's token variable. A file left over from an older
   // version of the harness would otherwise keep a malformed helper, and git then tries to exec
   // `git credential-credential.helper=...` for every shell-out that needs credentials.
@@ -136,6 +138,15 @@ export function configureGitAuth({ cfg, dir, log = () => {} }) {
   if (current !== desired) {
     fs.writeFileSync(process.env.GIT_CONFIG_GLOBAL, desired);
     if (current !== null) log(`git auth: rewrote ${process.env.GIT_CONFIG_GLOBAL}, its credential helper did not match this run`);
+  }
+  // Read it back through git rather than trusting the write: the alternative is a review that gets
+  // part-way through a private module download and reports a shell syntax error.
+  const readBack = execFileSync("git", ["config", "--global", "--get", "credential.helper"], {
+    encoding: "utf8",
+    env: { ...process.env, GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL },
+  }).trim();
+  if (readBack !== helper) {
+    throw new Error(`git config round-trip lost the credential helper: wrote ${JSON.stringify(helper)}, git read ${JSON.stringify(readBack)}`);
   }
   // A clone-mode run configures auth before cloning, so the checkout directory may not be a repository
   // yet; setting local config there fails, and the global file already carries the same settings.
