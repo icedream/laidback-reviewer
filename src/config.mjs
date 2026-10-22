@@ -179,6 +179,9 @@ export const CONFIG_SCHEMA = record({
       // auto: skip seeding when the posting identity is also a possible decider, which is the case for
       // a user token, because clicking would then clear the chip rather than set it.
       seedReactions: enumerated(["auto", "always", "never"], { def: "auto" }),
+      // A gate posted into your own DM is read the instant it lands. auto puts the read marker back
+      // when the poster is one of the deciders, which is the only case that needs it.
+      markUnread: enumerated(["auto", "always", "never"], { def: "auto" }),
       // Change only for a proxy or a test double.
       apiBaseUrl: string({ def: "https://slack.com/api" }),
     }),

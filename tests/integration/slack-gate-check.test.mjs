@@ -50,6 +50,10 @@ function tempEnv(slackOverrides = {}, { dryRun = true } = {}) {
 /** Answers the calls the gate makes, and can answer with a reaction instead of a reply. */
 function fakeSlack({ approver = "U_ME", textReply = true, react = null } = {}) {
   const posts = [];
+  const marks = [];
+  // What the channel's newest message was before this gate: putting the read marker back to it is
+  // what makes a self-posted gate show as unread.
+  const previousTs = "1700000000.000100";
   const reactions = [];
   const seen = [];
   let posted = 0;
@@ -71,6 +75,11 @@ function fakeSlack({ approver = "U_ME", textReply = true, react = null } = {}) {
       const ts = nextTs();
       posts.push({ ...body, ts });
       return json({ ok: true, ts, channel: body.channel });
+    }
+    if (url.startsWith("/conversations.history")) return json({ ok: true, messages: [{ ts: previousTs, user: "U_ME" }] });
+    if (url.startsWith("/conversations.mark")) {
+      marks.push(body);
+      return json({ ok: true });
     }
     if (url.startsWith("/reactions.add")) {
       reactions.push(body);
@@ -95,8 +104,10 @@ function fakeSlack({ approver = "U_ME", textReply = true, react = null } = {}) {
 
   return {
     posts,
+    marks,
     reactions,
     seen,
+    previousTs,
     start: () => new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(`http://127.0.0.1:${server.address().port}`))),
     close: () => {
       server.close();
@@ -329,6 +340,10 @@ test("every inline comment is posted in the thread, and none of them decides the
     const row = store.pendingGates().find((entry) => entry.id === opened.gateId);
     assert.deepEqual(JSON.parse(row.comment_ts), replies.map((entry) => entry.ts));
 
+    // A gate you posted to yourself is read the instant it lands, so the marker goes back: that is what
+    // makes it show as unread in the client.
+    assert.deepEqual(slack.marks, [{ channel: "D_SELF", ts: slack.previousTs }], "auto puts the read marker back in a self-DM");
+
     // Those replies carry the same identity as the decider, so the recorded ts list is what keeps a
     // decision-shaped one from deciding anything.
     slack.posts[1].text = `approve ${opened.gateId} decided by accident`;
@@ -400,5 +415,46 @@ test("gate.mjs sync reads a Slack decision into the store, which is what post-ap
     store.close();
     slack.close();
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the read marker is put back only where a self-posted gate would go unnoticed", async () => {
+  const cases = [
+    { slackOverrides: {}, allowUsers: "U_ME", expectMark: true, why: "auto: the poster is a decider" },
+    { slackOverrides: {}, allowUsers: "U_OTHER", expectMark: false, why: "auto: the poster cannot decide" },
+    { slackOverrides: { markUnread: "never" }, allowUsers: "U_ME", expectMark: false, why: "never: leave the client alone" },
+    { slackOverrides: { markUnread: "always" }, allowUsers: "U_OTHER", expectMark: true, why: "always: mark even when the poster cannot decide" },
+  ];
+
+  for (const testCase of cases) {
+    const slack = fakeSlack();
+    const apiBaseUrl = await slack.start();
+    const { dir, config } = tempEnv({ apiBaseUrl, ...testCase.slackOverrides }, { dryRun: false });
+    const cfg = loadConfig({ path: config, env: { GATECHECK_XOXC: "xoxc-test", GATECHECK_XOXD: "xoxd-test", LAIDBACK_SLACK_USERS: testCase.allowUsers } });
+    const store = openStore(path.join(dir, "mark.db"));
+    try {
+      const gate = createGate({
+        cfg,
+        store,
+        slack: createSlackGate({ cfg, store, token: "xoxc-test", cookie: "xoxd-test", log: () => {} }),
+        log: () => {},
+      });
+      await gate.open({
+        stage: "before_post",
+        reviewId: null,
+        summary: `verdict request_changes: gate ${testCase.why}`,
+      });
+
+      if (testCase.expectMark) {
+        assert.deepEqual(slack.marks, [{ channel: "D_SELF", ts: slack.previousTs }], testCase.why);
+      } else {
+        assert.deepEqual(slack.marks, [], testCase.why);
+      }
+      assert.ok(slack.posts.length, "the gate message itself still went out in every case");
+    } finally {
+      store.close();
+      slack.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   }
 });

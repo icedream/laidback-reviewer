@@ -123,4 +123,8 @@ gate:
       reject: [x]
       hold: [hourglass_flowing_sand]
     seedReactions: auto                 # auto | always | never (auto skips when the poster may decide)
+    # auto | always | never. A gate posted into your own DM is marked read the moment it lands, so
+    # nothing shows as unread. auto puts the read marker back where it was before the post, which is
+    # what makes it unread again, and only does that when the poster is also one of the deciders.
+    markUnread: auto
     apiBaseUrl: https://slack.com/api   # change only for a proxy or a test double

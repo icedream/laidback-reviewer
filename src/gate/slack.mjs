@@ -151,6 +151,11 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
       log(`no slack channel for the gate: set ${slack.channelEnv} or create #${slack.channelName}`);
       return false;
     }
+    // Where the read marker sat before this gate, so it can be put back afterwards.
+    const history = await slackFetch(`${apiBase}/conversations.history?channel=${channel}&limit=1`, {
+      headers: { Authorization: `Bearer ${token}`, ...(cookie ? { Cookie: `d=${cookie}` } : {}) },
+    }).then((response) => response.json());
+    const markerBefore = history.messages?.[0]?.ts ?? "";
     const hint = Object.entries(slack.reactions ?? {})
       .flatMap(([command, names]) => names.slice(0, 1).map((name) => `:${name}: ${command}`))
       .join(", ");
@@ -165,12 +170,32 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
     const allow = allowUsers();
     const me = (await whoAmI()).user_id ?? "";
     const seed = slack.seedReactions === "always" || (slack.seedReactions === "auto" && allow.length > 0 && !allow.includes(me));
-    if (!seed) {
+    if (seed) {
+      for (const name of names) await call("reactions.add", { channel, name, timestamp: sent.ts });
+    } else {
       log(`gate ${gateId}: not seeding its own reactions; the posting user ${me || "?"} may decide`);
-      return true;
     }
-    for (const name of names) await call("reactions.add", { channel, name, timestamp: sent.ts });
+    await markUnread({ gateId, channel, marker: markerBefore, me });
     return true;
+  }
+
+  /**
+   * Slack marks a message you wrote as read the moment it lands, so a gate posted into your own DM
+   * leaves nothing to notice. Putting the read marker back to where it was before the post makes the
+   * thread unread again, which is the only signal the client gives for a conversation you own.
+   */
+  async function markUnread({ gateId, channel, marker, me }) {
+    const mode = slack.markUnread ?? "auto";
+    if (mode === "never") return;
+    // auto only applies where the poster is one of the deciders, which is the self-DM case. With a bot
+    // or webhook identity the message arrives unread on its own.
+    if (mode === "auto" && !(allowUsers().length && allowUsers().includes(me))) return;
+    if (!marker) {
+      log(`gate ${gateId}: the channel was empty before the gate, so there is no marker to put back`);
+      return;
+    }
+    const marked = await call("conversations.mark", { channel, ts: marker });
+    if (marked.ok) log(`gate ${gateId}: read marker set back to ${marker}, so the gate shows as unread`);
   }
 
   /**
