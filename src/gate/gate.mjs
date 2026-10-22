@@ -24,10 +24,15 @@ export function createGate({ cfg, store, log = () => {}, slack = null }) {
      * Open a gate for a composed review.
      * Returns { state: "approved" | "queued" | "skipped", gateId }.
      */
-    async open({ stage, reviewId, summary }) {
+    async open({ stage, reviewId, summary, target = null }) {
       if (!this.requiresApproval(stage)) return { state: "approved", gateId: null };
 
-      const gateId = store.openGate({ kind: `${stage}:${kind}`, review_id: reviewId, summary });
+      const gateId = store.openGate({
+        kind: `${stage}:${kind}`,
+        review_id: reviewId,
+        summary,
+        ...(target ?? {}),
+      });
 
       if (kind === "none") return { state: "approved", gateId };
 

@@ -64,6 +64,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   const preGate = await gate.open({
     stage: "before_review",
     reviewId: null,
+    target: { owner, repo, pr: prNumber, head_sha: headSha },
     summary: `Review requested for ${pr.repository}#${pr.number} at ${headSha.slice(0, 8)}: ${pr.title}`,
   });
   if (preGate.state !== "approved") {
@@ -256,6 +257,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   const gateState = await gate.open({
     stage: "before_post",
     reviewId,
+    target: { owner, repo, pr: prNumber, head_sha: headSha },
     summary: renderGateSummary({ pr, headSha, composed, notes, decisions: composed.decisions }),
   });
 

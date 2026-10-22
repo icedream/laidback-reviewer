@@ -63,6 +63,14 @@ export async function cycle({
     }
     if (deferral) store.clearDeferral(key);
 
+    // A head waiting behind a task gate waits once, not once per cycle: the review has not run, so nothing
+    // marked it seen, and every cycle would otherwise post another message for the same ask.
+    const waiting = store.pendingGateFor({ owner: candidate.owner, repo: candidate.repo, pr: candidate.pr, stage: "before_review" });
+    if (waiting) {
+      log(`  candidate ${candidate.htmlUrl}: already queued at gate ${waiting.id}, waiting on the decision`);
+      continue;
+    }
+
     log(`  candidate ${candidate.htmlUrl}: ${candidate.reason}${candidate.reRequest ? ` (re-requested ${candidate.reRequest.askedAt.slice(0, 16)}, earlier pass ${candidate.reRequest.handledAt.slice(0, 16)})` : ""}${plan.attempts ? ` (${plan.reason})` : ""}`);
     let checkout = null;
     try {

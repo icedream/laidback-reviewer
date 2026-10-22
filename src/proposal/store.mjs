@@ -52,6 +52,10 @@ CREATE TABLE IF NOT EXISTS gates (
   state TEXT NOT NULL,
   summary TEXT NOT NULL,
   slack_ts TEXT,
+  owner TEXT,
+  repo TEXT,
+  pr INTEGER,
+  head_sha TEXT,
   created_at TEXT NOT NULL,
   decided_at TEXT,
   decided_by TEXT,
@@ -106,6 +110,13 @@ export function openStore(path) {
   db.exec(SCHEMA);
   // Columns added after the first release: exec() above is a no-op on an existing database.
   for (const column of ["slack_ts TEXT", "comment_ts TEXT"]) {
+    try {
+      db.exec(`ALTER TABLE gates ADD COLUMN ${column}`);
+    } catch {
+      // present already
+    }
+  }
+  for (const column of ["owner TEXT", "repo TEXT", "pr INTEGER", "head_sha TEXT"]) {
     try {
       db.exec(`ALTER TABLE gates ADD COLUMN ${column}`);
     } catch {
@@ -186,7 +197,13 @@ export function createStore(db) {
     reviewFor: db.prepare(`SELECT * FROM reviews WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha`),
     commentsFor: db.prepare(`SELECT * FROM comments WHERE review_id = @review_id ORDER BY id`),
     openGate: db.prepare(
-      `INSERT INTO gates (id, kind, review_id, state, summary, created_at) VALUES (@id, @kind, @review_id, 'pending', @summary, @now)`,
+      `INSERT INTO gates (id, kind, review_id, state, summary, owner, repo, pr, head_sha, created_at)
+       VALUES (@id, @kind, @review_id, 'pending', @summary, @owner, @repo, @pr, @head_sha, @now)`,
+    ),
+    findPendingGate: db.prepare(
+      `SELECT * FROM gates
+       WHERE state = 'pending' AND owner = @owner AND repo = @repo AND pr = @pr AND kind LIKE @stage_prefix
+       ORDER BY created_at LIMIT 1`,
     ),
     getGate: db.prepare(`SELECT * FROM gates WHERE id = @id`),
     setSlackTs: db.prepare(`UPDATE gates SET slack_ts = @ts WHERE id = @id`),
@@ -296,10 +313,14 @@ export function createStore(db) {
     recentReviews: ({ owner = null, repo = null, sinceIso }) =>
       statements.recentReviews.all({ owner, repo, since: sinceIso }),
 
-    openGate({ kind, review_id = null, summary }) {
+    openGate({ kind, review_id = null, summary, owner = null, repo = null, pr = null, head_sha = null }) {
       const id = randomUUID().slice(0, 8);
-      statements.openGate.run({ id, kind, review_id, summary, now: now() });
+      statements.openGate.run({ id, kind, review_id, summary, owner, repo, pr, head_sha, now: now() });
       return id;
+    },
+    /** The gate a head already sits behind, by stage: "before_review" or "before_post". */
+    pendingGateFor({ owner, repo, pr, stage }) {
+      return statements.findPendingGate.get({ owner, repo, pr, stage_prefix: `${stage}:%` });
     },
     getGate: (id) => statements.getGate.get({ id }),
     setSlackTs: ({ id, ts }) => statements.setSlackTs.run({ id, ts }),
