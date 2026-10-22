@@ -15,6 +15,7 @@ import {
   loadSkillsFromDir,
 } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
+import { loadAgentMcpConfig } from "./mcp-config.mjs";
 
 function systemPromptExtension(prompt) {
   return (pi) => {
@@ -68,8 +69,12 @@ export async function createReviewSession({ cfg, agentDir, cwd, agentDef, contra
   // server declared in this session's agent dir is invisible unless the variable matches it.
   process.env.PI_CODING_AGENT_DIR = path.resolve(agentDir);
   // An SDK session does not load MCP on its own; the servers in the agent dir's mcp.json need this
-  // factory. Their read-only enforcement lives in the guard, whatever the credential allows.
-  const factories = cfg.tools.mcp.length ? [...extensionFactories, createMcpExtension({ logPath: mcpLogFile(cfg, agentDir) })] : [...extensionFactories];
+  // factory. Their read-only enforcement lives in the guard, whatever the credential allows. The config
+  // loader is ours because pi would also read .pi/mcp.json from the repository under review, and a
+  // project entry replaces the agent dir's entry of the same name.
+  const factories = cfg.tools.mcp.length
+    ? [...extensionFactories, createMcpExtension({ logPath: mcpLogFile(cfg, agentDir), loadConfig: () => loadAgentMcpConfig(agentDir) })]
+    : [...extensionFactories];
   const services = await createAgentSessionServices({
     cwd,
     agentDir,
