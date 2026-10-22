@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseArgs, resolveDryRun } from "../../src/cli/review-once.mjs";
+import { applyDebug, parseArgs, resolveDryRun } from "../../src/cli/review-once.mjs";
 
 test("--dry-run overrides a config that permits posting", () => {
   const args = parseArgs(["--repo", "example/orders-svc", "--pr", "143", "--dry-run"]);
@@ -32,4 +32,22 @@ test("nothing about the flags is implied by position", () => {
   assert.equal(args.post, false);
   assert.equal(args.dryRun, false);
   assert.equal(args.repo, "example/orders-svc");
+});
+
+test("--debug turns on the harness reasoning and full progress", () => {
+  const cfg = { logging: { level: "normal", progress: "tools" } };
+
+  applyDebug(cfg, parseArgs(["--repo", "acme/svc", "--pr", "7", "--debug"]));
+
+  assert.equal(cfg.logging.level, "debug");
+  assert.equal(cfg.logging.progress, "full");
+});
+
+test("without the flag the console stays at its normal level", () => {
+  const cfg = { logging: { level: "normal", progress: "tools" } };
+
+  applyDebug(cfg, parseArgs(["--repo", "acme/svc", "--pr", "7"]));
+
+  assert.equal(cfg.logging.level, "normal");
+  assert.equal(cfg.logging.progress, "tools");
 });

@@ -33,6 +33,11 @@ banner:
   suffix: "<sub>This review was performed by a local AI bot.</sub>"
   rephrase: false                   # rewrite the banner for flow; the review body never goes to that call
 
+logging:
+  level: normal                    # debug prints what the harness decided: queue probe, proposal, policy mapping
+  progress: tools                  # off | tools (each tool call as it happens) | full (also how each ended)
+  heartbeatMs: 15000                # while the model is thinking, say what the run is doing
+
 agent:
   name: pr-review                   # selects <name>.md; or LAIDBACK_AGENT_NAME
   agentDir: .pi/agent/agents        # or LAIDBACK_AGENT_DIR; ~ is expanded; only README.md is tracked here

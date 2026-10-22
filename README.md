@@ -226,6 +226,19 @@ asking for credentials it will never get), `toolchain.downloadTimeoutMs` per hop
 `toolchain.execTimeoutMs` for unpacking, and `gate.slack.timeoutMs`. One review also has a wall clock,
 `reviews.budgetMs`; over it the session is cancelled and the head records a failure like any other.
 
+## Watching a run
+
+`logging.progress` prints what the session is doing while it does it: each tool call as it starts
+(`tool bash command=cd /work/scratch/... && go test ./...`), and a heartbeat during the thinking gaps
+(`[03:15] still working: writing, 12 tool call(s)`). `full` adds how each call ended and how long it
+took. That is the difference between "the review is running gates" and a terminal that says nothing for
+ten minutes.
+
+`logging.level: debug` (or `--debug`, or `LAIDBACK_DEBUG=1`) adds the harness's own decisions: the queue
+probe result, the checkout and comparison paths, which linter it settled on, the context it carried
+over, and how the policy mapped the verdict. A run that ends early, whether cancelled or failed, stops
+its heartbeat and disposes its session, so the process exits instead of printing `still working`.
+
 ## Linter versions
 
 The image ships `golangci-lint` v2, pinned by `GOLANGCI_LINT_VERSION` at build time. That is a floor:

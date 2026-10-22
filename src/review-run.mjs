@@ -8,6 +8,7 @@
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { loadAgentDef, nonInteractiveContract } from "./agent/agent-def.mjs";
 import { createReviewGuard } from "./agent/guard.mjs";
+import { createProgress } from "./agent/progress.mjs";
 import { promptWithModelRetry } from "./agent/model-retry.mjs";
 import { modelServerStatus, resolveModelServer } from "./agent/model-server.mjs";
 import { ModelBusyError } from "./agent/run-watch.mjs";
@@ -139,6 +140,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     log(`model server busy (${queue.phase || queue.source}): ${pr.repository}#${pr.number} is not worth sending yet`);
     throw new ModelBusyError(queue);
   }
+  if (cfg.logging.level === "debug") log(`debug: model queue free (${queue.source}${queue.phase ? `, ${queue.phase}` : ""})`);
 
   const sessionManager =
     context.matched && context.mode === "fork" && cfg.context.sessionDir
@@ -159,9 +161,26 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     tools: REVIEW_TOOLS(cfg),
   });
 
-  log(`review ${pr.repository}#${pr.number} at ${headSha.slice(0, 8)}: agent ${agentDef.name}, ${files.length} changed files`);
-  const busyRetriesUsed = await promptWithModelRetry({ session, cfg, collector, prompt, log, probe: modelProbe });
-  session.dispose();
+  let progress = null;
+  let stopProgress = null;
+  let busyRetriesUsed = 0;
+  try {
+    progress = createProgress({ log, mode: cfg.logging.progress, heartbeatMs: cfg.logging.heartbeatMs });
+    stopProgress = session.subscribe(progress.handle);
+
+    log(`review ${pr.repository}#${pr.number} at ${headSha.slice(0, 8)}: agent ${agentDef.name}, ${files.length} changed files`);
+    if (cfg.logging.level === "debug") {
+      log(`debug: checkout ${checkoutDir}, comparison ${compareDir}, linter ${lint.mode}${lint.requestedVersion ? ` ${lint.requestedVersion}` : " (image)"}`);
+      log(`debug: context ${context.matched ? `${context.mode} from #${context.review.pr} (${context.kind})` : `none (${context.reason})`}`);
+    }
+    busyRetriesUsed = await promptWithModelRetry({ session, cfg, collector, prompt, log, probe: modelProbe });
+  } finally {
+    // A cancelled or failed turn must leave nothing armed: a heartbeat that outlives the run keeps the
+    // process alive and prints "still working" forever.
+    progress?.stop();
+    stopProgress?.();
+    session.dispose();
+  }
 
   const notes = [];
   if (lint.note) notes.push(`lint tooling: ${lint.note}`);
@@ -194,6 +213,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   }
 
   const composed = composeReview({ proposal, cfg, files, headSha });
+  if (cfg.logging.level === "debug") log(`debug: policy ${composed.verdict} -> ${composed.action} (${composed.event}), ${composed.payload.comments.length} comment(s), ${composed.payload.body.length} chars of body`);
   const reviewId = store.saveReview({ owner, repo, pr: prNumber, head_sha: headSha, composed, dryRun: cfg.reviews.dryRun, notes });
   const artifactPath = writeArtifact({
     dir: artifactDir,

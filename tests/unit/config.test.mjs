@@ -106,6 +106,14 @@ test("an explicit path in the file still wins over the work dir", () => {
   assert.equal(cfg.checkout.root, "/elsewhere/repos");
 });
 
+test("progress output is on by default and debug is not", () => {
+  const cfg = loadConfig({ path: writeConfig(baseConfig({ dir: "/tmp" })), env: {} });
+
+  assert.equal(cfg.logging.level, "normal");
+  assert.equal(cfg.logging.progress, "tools");
+  assert.equal(cfg.logging.heartbeatMs, 15000);
+});
+
 test("a module proxy comes from the file, or the environment when the file is silent", () => {
   const tree = baseConfig({ dir: "/tmp" });
   tree.checkout.goProxy = "https://athens.internal:3000";

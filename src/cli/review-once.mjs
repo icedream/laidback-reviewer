@@ -19,15 +19,24 @@ import { runReview } from "../review-run.mjs";
 import { prepareCheckout, releaseWorktree } from "../checkout.mjs";
 
 function parseArgs(argv) {
-  const out = { post: false, dryRun: false };
+  const out = { post: false, dryRun: false, debug: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--post") out.post = true;
     else if (arg === "--dry-run") out.dryRun = true;
+    else if (arg === "--debug") out.debug = true;
     else if (arg.startsWith("--")) out[arg.slice(2)] = argv[++i];
     else if (!out.positional) out.positional = arg;
   }
   return out;
+}
+
+/** Progress output and the harness's own decisions; a flag or the environment both work. */
+function applyDebug(cfg, args) {
+  if (!args.debug && !process.env.LAIDBACK_DEBUG) return cfg;
+  cfg.logging.level = "debug";
+  cfg.logging.progress = "full";
+  return cfg;
 }
 
 /**
@@ -40,17 +49,18 @@ export function resolveDryRun(cfg, args) {
   return cfg.reviews.dryRun;
 }
 
-export { parseArgs };
+export { applyDebug, parseArgs };
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const cfg = loadConfig({ path: args.config ?? process.env.LAIDBACK_CONFIG ?? "config.yaml" });
   resolveDryRun(cfg, args);
+  applyDebug(cfg, args);
 
   const [owner, repo] = String(args.repo ?? "").split("/");
   const pr = Number(args.pr);
   if (!owner || !repo || !pr) {
-    console.error("usage: node src/cli/review-once.mjs --repo <owner>/<name> --pr <number> [--dir <checkout>] [--post | --dry-run]");
+    console.error("usage: node src/cli/review-once.mjs --repo <owner>/<name> --pr <number> [--dir <checkout>] [--post | --dry-run] [--debug]");
     process.exit(2);
   }
 

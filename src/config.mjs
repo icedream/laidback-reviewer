@@ -63,6 +63,14 @@ export const CONFIG_SCHEMA = record({
     suffix: string({ def: "" }),
     rephrase: bool({ def: false }),
   }),
+  logging: record({
+    // debug adds what the harness decided, not only what it did: the queue probe, the proposal as
+    // recorded, the policy mapping, the checkout and linter it settled on.
+    level: enumerated(["normal", "debug"], { def: "normal" }),
+    // tools prints each tool call as the session makes it; full also prints how each one ended.
+    progress: enumerated(["off", "tools", "full"], { def: "tools" }),
+    heartbeatMs: integer({ def: 15_000, min: 1_000 }),
+  }),
   agent: record({
     name: string({ def: "pr-review" }),
     agentDir: string({ def: ".pi/agent/agents" }),
