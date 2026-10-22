@@ -99,7 +99,9 @@ const READ_DENY = [
   { re: /(^|\/)\.git\/config$/, reason: "credential helper configuration is not readable by a review run" },
 ];
 
-const ATLASSIAN_READ = /^(get|search|query|list|read|fetch)/i;
+const ATLASSIAN_READ = /^(get|search|query|list|read|fetch|discover)/i;
+// The connector also offers generic calls named by verb, so the read variant cannot be caught by a prefix.
+const ATLASSIAN_READ_CALLS = new Set(["executeRead"]);
 
 function hostAllowDenied(command, allowHosts) {
   const hosts = new Set((allowHosts ?? []).map((host) => host.toLowerCase()));
@@ -181,7 +183,7 @@ export function createReviewGuard({ allowHosts = [], bashEnabled = true, writabl
           }
         }
         const atlassian = atlassianToolName(event.toolName, input);
-        if (atlassian && !ATLASSIAN_READ.test(atlassian)) {
+        if (atlassian && !ATLASSIAN_READ.test(atlassian) && !ATLASSIAN_READ_CALLS.has(atlassian)) {
           return block({ tool: event.toolName, reason: `Atlassian access is read-only; '${atlassian}' is not permitted` });
         }
         return undefined;

@@ -96,3 +96,16 @@ test("reads of credential material are refused", async () => {
     assert.ok(result?.block, `${filePath} should not be readable`);
   }
 });
+
+test("Atlassian access stays read-only, including the verb-named generic calls", async () => {
+  const call = decide();
+  for (const name of ["getJiraIssue", "searchJiraIssuesUsingJql", "getConfluenceContent", "discover", "executeRead"]) {
+    assert.equal(await call(`mcp__atlassian__${name}`, {}), undefined, `${name} is a read`);
+  }
+  for (const name of ["execute", "executeWrite", "executeDestructive", "addComment", "editJiraIssue"]) {
+    const result = await call(`mcp__atlassian__${name}`, {});
+    assert.match(result.reason, /read-only/, `${name} must not reach Jira`);
+  }
+  assert.match((await decide()("mcp", { server: "atlassian", tool: "addComment", action: "call" })).reason, /read-only/);
+  assert.match((await decide()("mcp", { server: "atlassian", action: "auth-start" })).reason, /cannot add MCP servers|drive OAuth/);
+});
