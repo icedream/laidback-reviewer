@@ -144,13 +144,18 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
       let toast = "";
 
       if (parsed.kind === "finding" || parsed.kind === "back") {
-        // A failed edit is cosmetic: the tap is acknowledged either way, and the gate stays decidable.
-        try {
-          if (parsed.kind === "finding") toast = (await editForFinding(parsed.gateId, parsed.index, cb)) ?? "";
-          else await editBack(parsed.gateId, cb, gate?.review_id ?? null);
-        } catch (error) {
-          log(`gate ${parsed.gateId}: the ${parsed.kind} view could not be shown in Telegram: ${error.message}`);
-          toast = "could not show that here";
+        if (!gate) {
+          // A tap on a message whose gate is gone: say so rather than editing an empty body.
+          toast = "this gate is not here any more";
+        } else {
+          try {
+            // A failed edit is cosmetic: the tap is acknowledged either way, and the gate stays decidable.
+            if (parsed.kind === "finding") toast = (await editForFinding(parsed.gateId, parsed.index, cb)) ?? "";
+            else await editBack(parsed.gateId, cb, gate.review_id ?? null);
+          } catch (error) {
+            log(`gate ${parsed.gateId}: the ${parsed.kind} view could not be shown in Telegram: ${error.message}`);
+            toast = "could not show that here";
+          }
         }
       } else if (!gate || gate.state !== "pending") {
         toast = "already decided";

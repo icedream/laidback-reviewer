@@ -184,6 +184,20 @@ test("a numbered button opens that finding, and back restores the summary", asyn
   }
 });
 
+test("a tap on a message whose gate is gone is answered, not edited into nothing", async () => {
+  const f = await fixture();
+  try {
+    // The gate row is deleted, which is what a state file reset looks like from a stale message.
+    f.store.db.prepare(`DELETE FROM gates WHERE id = @id`).run({ id: f.opened.gateId });
+    f.telegram.tap(`bk:${f.opened.gateId}`);
+    assert.deepEqual(await f.gateTransport.readDecisions(), []);
+    assert.equal(f.telegram.toasts.at(-1).text, "this gate is not here any more");
+    assert.equal(f.telegram.edits.length, 0, "no edit is attempted with an empty body");
+  } finally {
+    f.cleanup();
+  }
+});
+
 test("an offset is kept, so a restart does not re-decide a gate", async () => {
   const f = await fixture();
   try {
