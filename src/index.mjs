@@ -39,6 +39,7 @@ async function main() {
   const client = createGithubClient({
     baseUrl: process.env.LAIDBACK_GH_API || "https://api.github.com",
     token: secret(cfg, cfg.github.tokenEnv),
+    timeoutMs: cfg.github.timeoutMs,
   });
 
   const slack = slackGateFromConfig({ cfg, store, log: (line) => console.log(`  ${line}`) });

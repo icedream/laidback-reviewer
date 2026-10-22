@@ -29,23 +29,31 @@ export class GithubError extends Error {
   }
 }
 
-export function createGithubClient({ baseUrl = "https://api.github.com", token, fetchImpl = fetch, log = () => {} }) {
+export function createGithubClient({ baseUrl = "https://api.github.com", token, fetchImpl = fetch, timeoutMs = 30_000, log = () => {} }) {
   if (!token) throw new Error("GitHub token is empty: check github.tokenEnv in config.yaml");
 
   async function request(method, path, body) {
     assertWriteAllowed(method, path);
     const url = `${baseUrl.replace(/\/$/, "")}${path}`;
-    const response = await fetchImpl(url, {
-      method,
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${token}`,
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": USER_AGENT,
-        ...(body ? { "Content-Type": "application/json" } : {}),
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    let response;
+    try {
+      response = await fetchImpl(url, {
+        method,
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${token}`,
+          "X-GitHub-Api-Version": "2022-11-28",
+          "User-Agent": USER_AGENT,
+          ...(body ? { "Content-Type": "application/json" } : {}),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (error) {
+      // A hung request here stops a cycle without saying so, so the path belongs in the message.
+      if (error?.name === "AbortError" || error?.name === "TimeoutError") throw new Error(`github api answered nothing within ${timeoutMs}ms: ${method} ${path}`);
+      throw error;
+    }
 
     const remaining = response.headers.get("x-ratelimit-remaining");
     log(`${method} ${path} → ${response.status}${remaining !== null ? ` (rate remaining ${remaining})` : ""}`);

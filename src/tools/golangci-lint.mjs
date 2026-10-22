@@ -130,15 +130,15 @@ export function releaseUrl({ downloadBaseUrl, version, platform = process.platfo
   return `${downloadBaseUrl.replace(/\/$/, "")}/golangci/golangci-lint/releases/download/${version}/${asset}`;
 }
 
-const defaultExec = async (command, args) => {
-  await run(command, args, { maxBuffer: 32 * 1024 * 1024 });
+const defaultExec = (timeoutMs = 120_000) => async (command, args) => {
+  await run(command, args, { maxBuffer: 32 * 1024 * 1024, timeout: timeoutMs });
 };
 
 /**
  * Fetch with the host check applied to every hop. GitHub release downloads redirect to an asset CDN,
  * and an allowlist that only looked at the first URL would be decorative.
  */
-async function download({ url, to, allowHosts, fetchImpl = fetch, maxHops = 5 }) {
+async function download({ url, to, allowHosts, fetchImpl = fetch, maxHops = 5, timeoutMs = 120_000 }) {
   let target = url;
   const seen = new Set();
 
@@ -146,7 +146,7 @@ async function download({ url, to, allowHosts, fetchImpl = fetch, maxHops = 5 })
     const host = new URL(target).hostname;
     if (!allowHosts.includes(host)) throw new Error(`refusing to fetch from ${host}: not in tools.allowHosts`);
 
-    const response = await fetchImpl(target, { redirect: "manual" });
+    const response = await fetchImpl(target, { redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get("location");
       if (!location) throw new Error(`redirect without a location while fetching ${target}`);
@@ -172,7 +172,7 @@ export async function ensureGolangciLint({
   cfg,
   version,
   downloadBaseUrl = cfg.toolchain.downloadBaseUrl || "https://github.com",
-  execImpl = defaultExec,
+  execImpl = defaultExec(cfg.toolchain.execTimeoutMs),
   fetchImpl = fetch,
   log = () => {},
 } = {}) {
@@ -187,7 +187,7 @@ export async function ensureGolangciLint({
   log(`install golangci-lint ${version} → ${target}`);
 
   try {
-    await download({ url, to: archive, allowHosts: cfg.tools.allowHosts, fetchImpl });
+    await download({ url, to: archive, allowHosts: cfg.tools.allowHosts, fetchImpl, timeoutMs: cfg.toolchain.downloadTimeoutMs });
     await execImpl("tar", ["-x", "-z", "--strip-components=1", "-C", target, "-f", archive]);
   } catch (error) {
     // The URL belongs in the message: a missing tag and a blocked egress look the same otherwise.

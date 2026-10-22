@@ -18,9 +18,28 @@ export function credentialHelperArgs(tokenEnv) {
 
 const credentialHelperValue = (tokenEnv) => credentialHelperArgs(tokenEnv)[1].replace(/^credential\.helper=/, "");
 
-function git(args, { cwd, tokenEnv } = {}) {
+/**
+ * Options for a git call. A stalled transfer or a credential prompt is what leaves a review sitting
+ * there with the model idle, so git is told to fail rather than ask, and every call has a deadline.
+ */
+export function gitExecOptions(cfg, { long = false } = {}) {
+  return {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+    timeout: long ? cfg.checkout.transferTimeoutMs : cfg.checkout.commandTimeoutMs,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_HTTP_LOW_SPEED_LIMIT: "10240", GIT_HTTP_LOW_SPEED_TIME: "30" },
+  };
+}
+
+function git(args, { cwd, tokenEnv, cfg, long = false } = {}) {
   const prefixed = tokenEnv ? [...credentialHelperArgs(tokenEnv), ...args] : args;
-  return execFileSync("git", prefixed, { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }).trim();
+  const options = gitExecOptions(cfg ?? { checkout: { commandTimeoutMs: 60_000, transferTimeoutMs: 300_000 } }, { long });
+  try {
+    return execFileSync("git", prefixed, { cwd, ...options }).trim();
+  } catch (error) {
+    if (error?.killed || error?.signal) throw new Error(`git ${args.join(" ")} was cancelled after ${options.timeout}ms`);
+    throw error;
+  }
 }
 
 export function repoDir(cfg, owner, repo) {
@@ -41,7 +60,7 @@ export function prepareCheckout({ cfg, owner, repo, pr, headRef, headSha, log = 
   if (cfg.checkout.mode === "existing") {
     const dir = path.resolve(cfg.checkout.existingDir || repoDir(cfg, owner, repo));
     if (!fs.existsSync(path.join(dir, ".git"))) throw new Error(`checkout.mode=existing but ${dir} is not a git repository`);
-    return { dir, headSha: git(["rev-parse", "HEAD"], { cwd: dir }), cachedClone: null };
+    return { dir, headSha: git(["rev-parse", "HEAD"], { cwd: dir, cfg }), cachedClone: null };
   }
 
   const tokenEnv = cfg.github.tokenEnv;
@@ -51,26 +70,26 @@ export function prepareCheckout({ cfg, owner, repo, pr, headRef, headSha, log = 
 
   if (!fs.existsSync(path.join(cached, ".git"))) {
     log(`clone ${owner}/${repo} → ${cached}`);
-    git(["clone", "--filter=blob:none", `https://github.com/${owner}/${repo}.git`, cached], { tokenEnv });
+    git(["clone", "--filter=blob:none", `https://github.com/${owner}/${repo}.git`, cached], { tokenEnv, cfg, long: true });
   } else {
-    git(["fetch", "--prune", "origin", headRef], { cwd: cached, tokenEnv });
+    git(["fetch", "--prune", "origin", headRef], { cwd: cached, tokenEnv, cfg, long: true });
   }
   // Now that the clone exists, the repository-local settings apply to anything run from inside it.
-  applyLocalGitAuth(cached, gitAuthHelper(cfg));
+  applyLocalGitAuth({ cfg, dir: cached });
 
   const dir = worktreeDir(cfg, owner, repo, pr, headSha);
   if (fs.existsSync(dir)) {
     log(`reusing worktree ${dir}`);
     return { dir, headSha, cachedClone: cached };
   }
-  git(["worktree", "add", "--detach", dir, headSha], { cwd: cached });
+  git(["worktree", "add", "--detach", dir, headSha], { cwd: cached, cfg });
   return { dir, headSha, cachedClone: cached };
 }
 
 export function releaseWorktree({ cfg, dir, cachedClone, log = () => {} }) {
   if (cfg.checkout.mode === "existing" || !cachedClone) return;
   try {
-    git(["worktree", "remove", "--force", dir], { cwd: cachedClone });
+    git(["worktree", "remove", "--force", dir], { cwd: cachedClone, cfg });
   } catch (error) {
     log(`worktree remove failed for ${dir}: ${error.message}`);
   }
@@ -106,16 +125,15 @@ export function configureGitAuth({ cfg, dir, log = () => {} }) {
   }
   // A clone-mode run configures auth before cloning, so the checkout directory may not be a repository
   // yet; setting local config there fails, and the global file already carries the same settings.
-  applyLocalGitAuth(dir, helper);
+  applyLocalGitAuth({ cfg, dir });
   log(`git auth: credential helper reads $${cfg.github.tokenEnv}, global config ${process.env.GIT_CONFIG_GLOBAL}`);
 }
 
-const gitAuthHelper = (cfg) => credentialHelperValue(cfg.github.tokenEnv);
-
-function applyLocalGitAuth(dir, helper) {
+function applyLocalGitAuth({ cfg, dir }) {
   if (!dir || !fs.existsSync(path.join(dir, ".git"))) return false;
-  git(["config", "--local", "credential.helper", helper], { cwd: dir });
-  git(["config", "--local", "url.https://github.com/.insteadOf", "git@github.com:"], { cwd: dir });
+  const helper = credentialHelperValue(cfg.github.tokenEnv);
+  git(["config", "--local", "credential.helper", helper], { cwd: dir, cfg });
+  git(["config", "--local", "url.https://github.com/.insteadOf", "git@github.com:"], { cwd: dir, cfg });
   return true;
 }
 

@@ -25,6 +25,7 @@ async function main() {
   const client = createGithubClient({
     baseUrl: process.env.LAIDBACK_GH_API || "https://api.github.com",
     token: secret(cfg, cfg.github.tokenEnv, { required: true }),
+    timeoutMs: cfg.github.timeoutMs,
   });
 
   const result = await postApprovedReview({ cfg, store, client, reviewId, log: console.error });

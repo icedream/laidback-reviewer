@@ -69,9 +69,13 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
   const slack = cfg.gate.slack;
   // Overridable for a proxy or a test double; the shape of the API is the same.
   const apiBase = (slack.apiBaseUrl || SLACK_API).replace(/\/$/, "");
+  // Every Slack call gets a deadline: a hung read would stall the cycle that is meant to notice a
+  // decision. A config object built outside the schema may omit the key, so the default lives here too.
+  const slackTimeoutMs = Number(slack.timeoutMs) > 0 ? Number(slack.timeoutMs) : 15_000;
+  const slackFetch = (url, options = {}) => fetch(url, { ...options, signal: AbortSignal.timeout(slackTimeoutMs) });
 
   async function call(method, payload = {}) {
-    const response = await fetch(`${apiBase}/${method}`, {
+    const response = await slackFetch(`${apiBase}/${method}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json; charset=utf-8",
@@ -102,14 +106,14 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
     if (authed.ok) {
       // A self DM exists once you have messaged yourself in the client; opening one with a user
       // token is refused, so this reads the existing channel instead of creating it.
-      const list = await fetch(`${apiBase}/conversations.list?types=im&limit=200`, {
+      const list = await slackFetch(`${apiBase}/conversations.list?types=im&limit=200`, {
         headers: { Authorization: `Bearer ${token}`, ...(cookie ? { Cookie: `d=${cookie}` } : {}) },
       }).then((response) => response.json());
       const self = (list.channels ?? []).find((channel) => channel.user === authed.user_id);
       if (self) return self.id;
     }
 
-    const channels = await fetch(`${apiBase}/conversations.list?types=private_channel,public_channel&limit=500`, {
+    const channels = await slackFetch(`${apiBase}/conversations.list?types=private_channel,public_channel&limit=500`, {
       headers: { Authorization: `Bearer ${token}`, ...(cookie ? { Cookie: `d=${cookie}` } : {}) },
     }).then((response) => response.json());
     const named = (channels.channels ?? []).find((channel) => channel.name === slack.channelName);
@@ -131,7 +135,7 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
         log(`transport=webhook but ${slack.webhookUrlEnv} is unset; gate ${gateId} stays queued`);
         return false;
       }
-      const response = await fetch(url, {
+      const response = await slackFetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json; charset=utf-8" },
         body: JSON.stringify({
@@ -205,7 +209,7 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
     const applied = [];
 
     for (const gate of pending) {
-      const thread = await fetch(`${apiBase}/conversations.replies?${new URLSearchParams({ channel, ts: gate.slack_ts, limit: "200" })}`, {
+      const thread = await slackFetch(`${apiBase}/conversations.replies?${new URLSearchParams({ channel, ts: gate.slack_ts, limit: "200" })}`, {
         headers: { Authorization: `Bearer ${token}`, ...(cookie ? { Cookie: `d=${cookie}` } : {}) },
       }).then((response) => response.json());
 
