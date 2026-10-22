@@ -337,8 +337,9 @@ A bot token instead: create a Slack app with `chat:write`, `conversations:read`,
 bot to that channel, and put `xoxb-...` in `SLACK_MCP_XOXC_TOKEN`. A bot can open a real DM; a user
 token cannot open your own self DM, which is why the pinned channel id exists.
 
-Decide by reacting on the gate message (`:white_check_mark:`, `:x:`, `:hourglass_flowing_sand:`), or in
-its thread: `approve <id>`, `reject <id> <reason>`, or `hold <id>`. Only
+Decide by reacting on the gate message (`:white_check_mark:`, `:x:`, `:hourglass_flowing_sand:`, or
+`:arrows_counterclockwise:` for another pass over the head), or in its thread: `approve <id>`,
+`reject <id> <reason>`, `hold <id>` or `rerun <id>`. Only
 allowlisted users count, the id is the eight characters shown in the message, and an unanswered gate
 expires after `gate.timeoutHours`, with `onTimeout: hold` meaning it is never posted. Once you approve,
 the next poll cycle posts the review, re-anchored against the current head.
@@ -407,6 +408,13 @@ how many tool calls and tokens so far, and elapsed time against `reviews.budgetM
 `review composed` with the verdict and finding count, `paused` when the inference server is busy and the
 head is deferred, or `failed` with the error. Rewrites are throttled by `logging.statusEveryMs`, and a lost
 status write never fails a review that is running.
+
+The fourth control, `↻ another pass`, asks for a better review of the same head: useful when the reviewer
+itself improved. It rejects the proposal waiting on that gate as superseded, so nothing posts behind the new
+pass, and the next cycle runs a fresh pass over that head. That pass starts from the transcript of the one it
+replaces rather than from an empty context, and its findings are presented to the model as a draft to
+improve on. `reviews.maxReReviewsPerHead` caps how often, and a head that moved in the meantime drops the
+request rather than reviewing a different commit.
 
 Taps from an id outside `LAIDBACK_TELEGRAM_USERS` are answered with `not on the allow list` and leave the
 gate pending. Each callback query is acknowledged as it is read, so a restart does not re-decide a gate.

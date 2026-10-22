@@ -51,12 +51,12 @@ export async function cycle({
   );
   for (const item of rejected) log(`  skip ${item.pr}: ${item.reason}`);
 
-  for (const candidate of candidates) {
+  const handleCandidate = async (candidate) => {
     const key = { owner: candidate.owner, repo: candidate.repo, pr: candidate.pr, head_sha: candidate.headSha };
     const plan = failurePlan({ cfg, row: store.getFailure(key) });
     if (!plan.tryNow) {
       log(`  candidate ${candidate.htmlUrl}: skipped, ${plan.reason}`);
-      continue;
+      return "waiting";
     }
 
     // A head set aside because the model was occupied is not a failure, so it is not counted against
@@ -64,19 +64,23 @@ export async function cycle({
     const deferral = store.deferralFor(key);
     if (deferral && Date.parse(deferral.until_at) > Date.now()) {
       log(`  candidate ${candidate.htmlUrl}: deferred until ${deferral.until_at.slice(11, 16)} (${deferral.reason})`);
-      continue;
+      return "deferred";
     }
     if (deferral) store.clearDeferral(key);
 
     // One gate answers one review request. While that gate stands, or once it has been answered, the cycle
     // leaves the head alone: only a newer request asks again, and that arrives as a different candidate.
-    const taskGate = taskGateDecision(
-      store.latestGateFor({ owner: candidate.owner, repo: candidate.repo, pr: candidate.pr, stage: "before_review" }),
-      candidate.requestTs ?? "",
-    );
+    // A pass asked for at the gate is already answered by that tap, so it does not wait on a new task
+    // gate, and the message it was asked on carries its progress.
+    const taskGate = candidate.rerun
+      ? { proceed: true, kind: "rerun", gateId: candidate.statusGateId ?? null }
+      : taskGateDecision(
+          store.latestGateFor({ owner: candidate.owner, repo: candidate.repo, pr: candidate.pr, stage: "before_review" }),
+          candidate.requestTs ?? "",
+        );
     if (!taskGate.proceed && taskGate.kind !== "none" && taskGate.kind !== "re-requested") {
       log(`  candidate ${candidate.htmlUrl}: task gate ${taskGate.gateId} is ${taskGate.kind}; nothing runs`);
-      continue;
+      return "gate";
     }
 
     log(`  candidate ${candidate.htmlUrl}: ${candidate.reason}${candidate.reRequest ? ` (re-requested ${candidate.reRequest.askedAt.slice(0, 16)}, earlier pass ${candidate.reRequest.handledAt.slice(0, 16)})` : ""}${plan.attempts ? ` (${plan.reason})` : ""}`);
@@ -100,7 +104,7 @@ export async function cycle({
         store,
         client,
         transport,
-        task: { owner: candidate.owner, repo: candidate.repo, pr: candidate.pr, checkoutDir: checkout.dir, compareDir: checkout.compareDir, runId: checkout.runId, reRequest: candidate.reRequest ?? null, requestTs: candidate.requestTs ?? null, resumeScratchKept: Boolean(deferral?.run_id && checkout.runId === deferral.run_id), resumeSessionFile: deferral?.session_file ?? null, resumedAt: deferral?.until_at ?? "", statusGateId: taskGate.gateId ?? null },
+        task: { owner: candidate.owner, repo: candidate.repo, pr: candidate.pr, checkoutDir: checkout.dir, compareDir: checkout.compareDir, runId: checkout.runId, reRequest: candidate.reRequest ?? null, requestTs: candidate.requestTs ?? null, rerun: candidate.rerun === true, skipTaskGate: candidate.rerun === true, resumeScratchKept: Boolean(deferral?.run_id && checkout.runId === deferral.run_id), resumeSessionFile: deferral?.session_file ?? candidate.resumeSessionFile ?? null, resumedAt: deferral?.until_at ?? candidate.resumedAt ?? "", resumeReason: deferral ? "interrupted" : candidate.rerun ? "rerun" : "", statusGateId: taskGate.gateId ?? null },
         piAgentDir,
         artifactDir,
         log,
@@ -127,7 +131,7 @@ export async function cycle({
         // The transcript names paths in this tree. Deleting it here is what turns a pause into a restart.
         keepCheckout = true;
         log(`    deferred: ${error.message}, retry after ${until.slice(11, 16)}${checkout ? `, tree kept at ${checkout.dir}` : ""}`);
-        continue;
+        return "deferred";
       }
       // Recorded against this head so the next cycle waits rather than re-running a busy server
       // or a branch that does not build.
@@ -135,6 +139,52 @@ export async function cycle({
     } finally {
       if (checkout && !keepCheckout) releaseWorktree({ ...checkout, cfg, log });
     }
+    return "done";
+  };
+
+  for (const candidate of candidates) await handleCandidate(candidate);
+
+  // Another pass asked for on a gate. It does not wait for GitHub to mention the pull request again: the
+  // request itself names the head, so the cycle fetches the pull request and runs the pass.
+  for (const row of store.pendingReruns()) {
+    const key = { owner: row.owner, repo: row.repo, pr: row.pr, head_sha: row.head_sha };
+    let outcome = "failed";
+    try {
+      const seen = store.seenFor(key);
+      if (seen && seen.rereviews >= cfg.reviews.maxReReviewsPerHead) {
+        log(`  rerun ${row.owner}/${row.repo}#${row.pr}: ${seen.rereviews} passes over this head already, the ceiling is ${cfg.reviews.maxReReviewsPerHead}`);
+        outcome = "parked";
+      } else {
+        const prJson = await client.getPull(row.owner, row.repo, row.pr);
+        if (prJson.head.sha !== row.head_sha) {
+          log(`  rerun ${row.owner}/${row.repo}#${row.pr}: the head moved to ${prJson.head.sha.slice(0, 8)}, the request for ${row.head_sha.slice(0, 8)} is dropped`);
+          outcome = "moved";
+        } else {
+          const prior = store.reviewFor(key);
+          const priorSession = store.latestSessionFor(key);
+          log(`  rerun ${prJson.html_url}: another pass requested by ${row.requested_by} at ${row.requested_at.slice(0, 16)}${priorSession ? `, continuing from the ${priorSession.created_at.slice(11, 16)} pass` : " from scratch"}`);
+          outcome = await handleCandidate({
+            owner: row.owner,
+            repo: row.repo,
+            pr: row.pr,
+            headSha: row.head_sha,
+            headRef: prJson.head.ref,
+            htmlUrl: prJson.html_url,
+            reason: "another pass requested at the gate",
+            reRequest: { askedAt: row.requested_at, handledAt: prior?.handledAt ?? row.requested_at },
+            requestTs: row.requested_at,
+            rerun: true,
+            resumeSessionFile: priorSession?.session_file ?? null,
+            resumedAt: priorSession?.created_at ?? row.requested_at,
+            statusGateId: row.gate_id ?? null,
+          });
+        }
+      }
+    } catch (error) {
+      log(`  rerun ${row.owner}/${row.repo}#${row.pr} failed: ${error.message}`);
+    }
+    // A head set aside for a busy inference server keeps its request: the pass has not run yet.
+    if (outcome !== "deferred") store.consumeRerun(key);
   }
 }
 

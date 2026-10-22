@@ -90,7 +90,9 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   const files = await client.listFiles(owner, repo, prNumber);
   const gate = createGate({ cfg, store, log, transport });
   const target = { owner, repo, pr: prNumber, head_sha: headSha };
-  if (gate.requiresApproval("before_review")) {
+  if (task.skipTaskGate) {
+    log("task gate not opened: another pass was asked for on a gate, which is the approval");
+  } else if (gate.requiresApproval("before_review")) {
     // The gate answers one review request, identified by that event's timestamp: approving it releases this
     // head once, and only a later request asks again.
     const taskGate = gate.priorDecision({ stage: "before_review", target, askedAt: task.requestTs ?? "" });
@@ -193,7 +195,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     writableRoots,
     allowHosts: cfg.tools.allowHosts,
     lint: lint.mode === "off" ? null : lint,
-    resume: task.resumeSessionFile ? { at: task.resumedAt ?? "", sessionFile: task.resumeSessionFile } : null,
+    resume: task.resumeSessionFile ? { at: task.resumedAt ?? "", sessionFile: task.resumeSessionFile, reason: task.resumeReason ?? "interrupted" } : null,
     context: context.matched ? { description: context.description, instructions: context.instructions } : null,
   });
 
@@ -231,7 +233,10 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
         ? SessionManager.create(checkoutDir, cfg.context.sessionDir)
         : SessionManager.inMemory(checkoutDir);
 
-  if (task.resumeSessionFile) {
+  if (task.resumeSessionFile && task.resumeReason === "rerun") {
+    log(`forking the pass that is being replaced, from ${task.resumeSessionFile}`);
+  }
+  if (task.resumeSessionFile && task.resumeReason !== "rerun") {
     log(`resuming the interrupted pass from ${task.resumeSessionFile}${task.resumeScratchKept ? ", its scratch tree still in place" : ", its scratch tree gone"}`);
   }
   await runStatus?.setStage("starting the review session");

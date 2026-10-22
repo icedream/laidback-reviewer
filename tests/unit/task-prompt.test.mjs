@@ -121,6 +121,31 @@ test("a resumed run is told it is continuing, not starting over", () => {
   assert.doesNotMatch(plain, /Resumed run/);
 });
 
+test("a requested rerun is told the earlier review is being replaced, not corrected", () => {
+  const rerun = buildTaskPrompt({
+    pr,
+    files,
+    checkoutDir: "/work/scratch/acme-svc-7-abcdef01",
+    headSha: pr.head.sha,
+    resume: { at: "2026-04-04T09:00:00.000Z", sessionFile: "/data/sessions/run-1.jsonl", reason: "rerun" },
+  });
+  assert.match(rerun, /another pass was asked for on the gate that held the previous review/);
+  assert.match(rerun, /being replaced, not corrected/);
+  assert.match(rerun, /Treat its findings as a draft/);
+  assert.doesNotMatch(rerun, /inference server was occupied/, "nobody deferred this pass");
+
+  // The interrupted case must not pick up the rerun wording.
+  const interrupted = buildTaskPrompt({
+    pr,
+    files,
+    checkoutDir: "/work/scratch/acme-svc-7-abcdef01",
+    headSha: pr.head.sha,
+    resume: { at: "2026-04-04T09:00:00.000Z", sessionFile: "/data/sessions/run-1.jsonl", reason: "interrupted" },
+  });
+  assert.match(interrupted, /interrupted at 2026-04-04T09:00:00\.000Z because the inference server was occupied/);
+  assert.doesNotMatch(interrupted, /replaced, not corrected/);
+});
+
 test("what is already on the PR includes what the earlier review actually said", () => {
   const prompt = buildTaskPrompt({
     pr,

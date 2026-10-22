@@ -122,23 +122,23 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, r
   }
 
   if (resume) {
-    sections.push(
+    const rerun = resume.reason === "rerun";
+    const opening = rerun
+      ? "Resumed run: another pass was asked for on the gate that held the previous review, so this pass"
+      : `Resumed run: an earlier pass of this review was interrupted${resume.at ? ` at ${resume.at}` : ""} because the inference server was occupied. This pass`;
+    const lines = [
+      `${opening} starts from that transcript rather than from an empty context.`,
       resume.scratchKept
-        ? [
-            `Resumed run: an earlier pass of this review was interrupted${resume.at ? ` at ${resume.at}` : ""}`,
-            "because the inference server was occupied. Its transcript is part of this session and its",
-            `scratch tree is still in place at ${checkoutDir}: the files and comparison copies it read are`,
-            "still there, so continue where it stopped instead of repeating finished steps.",
-          ].join("\n")
-        : [
-            `Resumed run: an earlier pass of this review was interrupted${resume.at ? ` at ${resume.at}` : ""}`,
-            "because the inference server was occupied. Its transcript is part of this session, so continue",
-            "where it stopped rather than repeating finished steps. Its scratch and comparison directories are",
-            "gone: re-run any command whose output you quote, and do not rely on results you cannot reproduce.",
-          ].join("\n"),
-    );
+        ? `Its scratch tree is still in place at ${checkoutDir}: the files and comparison copies it read are still there, so continue where it stopped instead of repeating finished steps.`
+        : "Its scratch and comparison directories are gone: continue from the reasoning in the transcript, and re-run any command whose output you quote rather than trusting a result you cannot reproduce.",
+    ];
+    if (rerun) {
+      lines.push(
+        "The review that pass produced is being replaced, not corrected. Treat its findings as a draft you were handed: re-derive the ones you can support better now, drop the ones you cannot, and add what it did not reach.",
+      );
+    }
+    sections.push(lines.join("\n"));
   }
-
   if (context) {
     const earlier = context.review?.checkout_dir || "an earlier scratch tree";
     sections.push(

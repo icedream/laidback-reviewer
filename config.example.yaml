@@ -124,6 +124,7 @@ gate:
       chatIdEnv: TELEGRAM_CHAT_ID       # numeric chat id; npm run gate:check:telegram -- --discover prints it
       allowUsersEnv: LAIDBACK_TELEGRAM_USERS
       maxFindingButtons: 8              # one numbered button per finding
+      rerunButton: true               # a fourth control asks for another pass over the head
       notify: true                      # false posts the gate silently
       timeoutMs: 15000
   slack:
@@ -140,6 +141,7 @@ gate:
       approve: [white_check_mark]
       reject: [x]
       hold: [hourglass_flowing_sand]
+      rerun: [arrows_counterclockwise]   # another pass over the same head
     seedReactions: auto                 # auto | always | never (auto skips when the poster may decide)
     # auto | always | never. A gate posted into your own DM is marked read the moment it lands, so
     # nothing shows as unread. auto puts the read marker back where it was before the post, which is
