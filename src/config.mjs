@@ -138,9 +138,9 @@ export const CONFIG_SCHEMA = record({
     enabled: bool({ def: true }),
     maxAgeDays: integer({ def: 30, min: 1 }),
     minScore: integer({ def: 35, min: 0, max: 100 }),
-    // Two dependency PRs touch the same manifest without sharing a thing to say about each other, so a
-    // shared file alone never carries context across pull requests unless the operator asks for it.
-    crossPrFileOverlap: bool({ def: false }),
+    // Weakest link, and only ever used when nothing stronger matches, but still worth carrying: what an
+    // earlier review concluded about go.mod can save a pass re-deriving it. Turn off if it gets noisy.
+    crossPrFileOverlap: bool({ def: true }),
     allowCrossRepo: bool({ def: false }),
     sessionDir: string({ def: "" }),
     mode: enumerated(["auto", "fork", "digest"], { def: "auto" }),

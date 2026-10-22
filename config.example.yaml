@@ -66,7 +66,7 @@ context:
   enabled: true
   maxAgeDays: 30
   minScore: 35                        # percent, changed-file overlap only
-  crossPrFileOverlap: false           # shared files alone never carry context across PRs
+  crossPrFileOverlap: true            # weakest link; off if shared manifests get noisy
   allowCrossRepo: false             # other repositories, by ticket key only, always digest
   sessionDir: ""                    # empty = nothing persists, so no context carries over
   mode: auto                        # auto | fork | digest

@@ -15,7 +15,7 @@ import { pickContext } from "../../src/context/carried-over.mjs";
 import { resolveStack } from "../../src/context/stack.mjs";
 
 const contextCfg = (overrides = {}) => ({
-  context: { enabled: true, maxAgeDays: 30, minScore: 35, allowCrossRepo: false, sessionDir: "", mode: "auto", maxForkTokens: 48000, ...overrides },
+  context: { enabled: true, maxAgeDays: 30, minScore: 35, crossPrFileOverlap: true, allowCrossRepo: false, sessionDir: "", mode: "auto", maxForkTokens: 48000, ...overrides },
 });
 
 const prView = (overrides = {}) => ({
@@ -230,19 +230,19 @@ test("a re-request over the same head carries what that head's earlier pass conc
   }
 });
 
-test("shared files alone do not carry a review across pull requests", () => {
+test("a carried-over review says which PR it came from", () => {
   const store = openStore(":memory:");
   try {
     const pr = prView({ number: 201, head: { ref: "dependabot/go_modules/all-abcdef", sha: "c".repeat(40) } });
     seed(store, { pr: 143, headSha: "d".repeat(40), branch: "ORD-142/pagination", comments: [{ path: "internal/api/pagination.go", line: 12, body: "the page offset is wrong" }] });
 
-    const refused = pickContext({ cfg: contextCfg(), store, pr, stack: { siblings: [] }, files: [{ filename: "internal/api/pagination.go" }] });
-    assert.equal(refused.matched, false, `file overlap across PRs was carried: ${refused.kind}`);
+    const carried = pickContext({ cfg: contextCfg(), store, pr, stack: { siblings: [] }, files: [{ filename: "internal/api/pagination.go" }] });
+    assert.equal(carried.matched, true, "the weakest link still carries when nothing stronger matches");
+    assert.equal(carried.kind, "file_overlap");
 
-    const allowed = pickContext({ cfg: contextCfg({ crossPrFileOverlap: true }), store, pr, stack: { siblings: [] }, files: [{ filename: "internal/api/pagination.go" }] });
-    assert.equal(allowed.matched, true, "the operator asked for that signal");
-    assert.equal(allowed.kind, "file_overlap");
-    assert.match(allowed.instructions, /It is not this pull request's history: call it PR #143 in what you write, never this branch/);
+    const refused = pickContext({ cfg: contextCfg({ crossPrFileOverlap: false }), store, pr, stack: { siblings: [] }, files: [{ filename: "internal/api/pagination.go" }] });
+    assert.equal(refused.matched, false, "the operator turned the signal off");
+    assert.match(carried.instructions, /It is not this pull request's history: call it PR #143 in what you write, never this branch/);
   } finally {
     store.close();
   }
