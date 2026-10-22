@@ -138,14 +138,39 @@ export async function cycle({
   }
 }
 
-export async function runLoop({ cfg, store, client, transport, stop = { current: false } }) {
+export async function runLoop({ cfg, store, client, transport, stop = { current: false }, runCycle = cycle, now = () => Date.now(), nap = sleep }) {
   while (!stop.current) {
-    const started = Date.now();
+    const started = now();
     try {
-      await cycle({ cfg, store, client, transport });
+      await runCycle({ cfg, store, client, transport });
     } catch (error) {
       console.error(`cycle failed: ${error.message}`);
     }
-    await sleep(Math.max(0, cfg.github.pollIntervalMs - (Date.now() - started)));
+
+    // Between discovery cycles the loop waits on the gate rather than on the clock: a tap lands within
+    // gate.pollIntervalMs, and the cycle that acts on it runs right away instead of up to a full
+    // github.pollIntervalMs later.
+    const until = started + cfg.github.pollIntervalMs;
+    while (!stop.current && now() - started < cfg.github.pollIntervalMs) {
+      const remaining = until - now();
+      await nap(Math.min(cfg.gate.pollIntervalMs, Math.max(0, remaining)));
+      if (stop.current || !transport) continue;
+
+      let decided = [];
+      try {
+        decided = await transport.readDecisions();
+      } catch (error) {
+        console.error(`reading the gate failed: ${error.message}`);
+        continue;
+      }
+      if (!decided.length) continue;
+
+      for (const gate of decided) console.log(`gate ${gate.id} ${gate.state} by ${gate.decided_by}${gate.reason ? ` (${gate.reason})` : ""} released between cycles`);
+      try {
+        await runCycle({ cfg, store, client, transport });
+      } catch (error) {
+        console.error(`cycle failed: ${error.message}`);
+      }
+    }
   }
 }

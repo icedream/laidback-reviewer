@@ -184,6 +184,9 @@ export const CONFIG_SCHEMA = record({
     timeoutHours: integer({ def: 24, min: 1 }),
     onTimeout: enumerated(["hold", "skip"], { def: "hold" }),
     maxPending: integer({ def: 5, min: 1 }),
+    // How often a waiting tap is read between discovery cycles. A decision should start the work in
+    // seconds, while repository polling keeps its own, slower, interval.
+    pollIntervalMs: integer({ def: 10_000, min: 1_000 }),
     telegram: record({
       botTokenEnv: string({ def: "TELEGRAM_BOT_TOKEN" }),
       chatIdEnv: string({ def: "TELEGRAM_CHAT_ID" }),

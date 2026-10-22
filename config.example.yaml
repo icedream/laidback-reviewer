@@ -111,12 +111,13 @@ tools:
     - sum.golang.org
 
 gate:
-  channel: cli                      # slack | cli | none
+  channel: cli                      # slack | telegram | cli | none
   beforeReview: false               # hold the task until approved, so no tokens are spent first
   beforePost: true                  # queue the composed review for approval before it is sent
   timeoutHours: 24
   onTimeout: hold                   # hold = never post
   maxPending: 5
+  pollIntervalMs: 10000             # how often a tap is read between discovery cycles (github.pollIntervalMs)
     # A bot cannot read reactions in an ordinary chat, so the tap target is an inline keyboard.
     telegram:
       botTokenEnv: TELEGRAM_BOT_TOKEN   # from @BotFather; keep it in your password manager

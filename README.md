@@ -307,7 +307,9 @@ disagreement is named in the prompt and in the run record.
 ## Slack as the approval gate
 
 `gate.channel` selects one of `slack`, `telegram`, `cli` or `none`. Both messaging transports present the
-same information and read back the same three decisions; they differ only in how you tap.
+same information and read back the same three decisions; they differ only in how you tap. A decision is
+read every `gate.pollIntervalMs` (10s) while the loop waits between discovery cycles, so a tap starts the
+work in seconds rather than at the next `github.pollIntervalMs` (120s).
 
 ```yaml
 gate:
