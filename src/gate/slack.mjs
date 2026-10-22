@@ -9,6 +9,7 @@
  */
 
 import { renderInlineComment } from "./gate.mjs";
+import { requestRerun } from "./gate.mjs";
 
 const SLACK_API = "https://slack.com/api";
 
@@ -19,7 +20,7 @@ const clamp = (text) => (text.length > SLACK_CLAMP ? `${text.slice(0, SLACK_CLAM
 export function parseDecision(text, { gateIds, allowUsers = [], user }) {
   if (!text || !gateIds.size) return null;
   if (allowUsers.length && !allowUsers.includes(user)) return null;
-  const match = /^\s*(approve|reject|hold)\s+([0-9a-f-]{4,12})\b\s*(.*)$/i.exec(text);
+  const match = /^\s*(approve|reject|hold|rerun)\s+([0-9a-f-]{4,12})\b\s*(.*)$/i.exec(text);
   if (!match) return null;
   const [, command, gateId, rest] = match;
   if (!gateIds.has(gateId)) return null;
@@ -27,6 +28,7 @@ export function parseDecision(text, { gateIds, allowUsers = [], user }) {
 }
 
 export const STATE_BY_COMMAND = { approve: "approved", reject: "rejected", hold: "held" };
+export const RERUN_COMMAND = "rerun";
 
 /**
  * An emoji on the gate message. Only the root message is read, so a reaction to somebody else's
@@ -34,7 +36,7 @@ export const STATE_BY_COMMAND = { approve: "approved", reject: "rejected", hold:
  * hold: the first one present decides.
  */
 export function parseReactions(message, { allowUsers = [], reactions = {} } = {}) {
-  for (const command of ["approve", "reject", "hold"]) {
+  for (const command of ["approve", "reject", "hold", "rerun"]) {
     const names = reactions[command] ?? [];
     for (const reaction of message?.reactions ?? []) {
       if (!names.includes(reaction.name)) continue;
@@ -159,14 +161,18 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
     const hint = Object.entries(slack.reactions ?? {})
       .flatMap(([command, names]) => names.slice(0, 1).map((name) => `:${name}: ${command}`))
       .join(", ");
-    const header = `laidback-reviewer gate ${gateId}. React ${hint}, or reply \`approve ${gateId}\` / \`reject ${gateId} <reason>\`.`;
+    const rerunHint = reviewId && slack.reactions?.rerun?.length ? ` or :${slack.reactions.rerun[0]}: for another pass` : "";
+    const header = `laidback-reviewer gate ${gateId}. React ${hint}, or reply \`approve ${gateId}\` / \`reject ${gateId} <reason>\`${rerunHint}.`;
     const sent = await call("chat.postMessage", { channel, text: `${header}\n\n${summary}`, unfurl_links: false });
     if (!sent.ok) return false;
     store.setSlackTs({ id: gateId, ts: sent.ts });
     await postInlineComments({ gateId, channel, threadTs: sent.ts, reviewId });
     // Seeding a reaction the decider would click is a trap: with a user token the poster and the
     // decider are the same identity, so the click would clear the chip instead of setting it.
-    const names = Object.values(slack.reactions ?? {}).flat();
+    // Only chips that mean something here: another pass needs a composed review to replace.
+    const names = Object.entries(slack.reactions ?? {})
+      .filter(([command]) => command !== "rerun" || reviewId)
+      .flatMap(([, list]) => list);
     const allow = allowUsers();
     const me = (await whoAmI()).user_id ?? "";
     const seed = slack.seedReactions === "always" || (slack.seedReactions === "auto" && allow.length > 0 && !allow.includes(me));
@@ -244,6 +250,13 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
         if (ours.has(message.ts)) continue;
         const decision = parseDecision(message.text, { gateIds, allowUsers: allow, user: message.user });
         if (!decision) continue;
+        if (decision.command === RERUN_COMMAND) {
+          const target = pending.find((entry) => entry.id === decision.gateId);
+          requestRerun({ store, gate: target, by: message.user ?? "slack", log });
+          applied.push({ id: decision.gateId, state: "rerun", decided_by: message.user ?? "slack" });
+          gateIds.delete(decision.gateId);
+          continue;
+        }
         applied.push(store.decideGate({ id: decision.gateId, state: STATE_BY_COMMAND[decision.command], decided_by: message.user ?? "slack", reason: decision.reason }));
         gateIds.delete(decision.gateId);
       }
@@ -251,7 +264,11 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
       // No text answer: fall back to a reaction on the gate message itself.
       if (gateIds.has(gate.id)) {
         const reaction = parseReactions((thread.messages ?? [])[0], { allowUsers: allow, reactions: slack.reactions });
-        if (reaction) {
+        if (reaction?.command === RERUN_COMMAND) {
+          requestRerun({ store, gate, by: reaction.user, log });
+          applied.push({ id: gate.id, state: "rerun", decided_by: reaction.user });
+          gateIds.delete(gate.id);
+        } else if (reaction) {
           applied.push(store.decideGate({ id: gate.id, state: STATE_BY_COMMAND[reaction.command], decided_by: reaction.user, reason: `reacted ${reaction.emoji}` }));
           gateIds.delete(gate.id);
         }

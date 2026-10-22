@@ -81,6 +81,11 @@ export function findingHtml(gate, comment, index, total) {
   ].join("\n");
 }
 
+/** The ask for a better review of the same head, kept off the decision row so a tap cannot be misread. */
+export function rerunRow(gateId) {
+  return [{ text: "↻ another pass", callback_data: `rr:${gateId}` }];
+}
+
 export function decisionRows(gateId) {
   return [
     { text: "✅ approve", callback_data: `ap:${gateId}` },
@@ -117,6 +122,8 @@ export function parseCallback(data) {
   }
   const finding = /^fw:([0-9a-f-]{4,32}):(\d{1,3})$/.exec(text);
   if (finding) return { kind: "finding", gateId: finding[1], index: Number(finding[2]) };
+  const rerun = /^rr:([0-9a-f-]{4,32})$/.exec(text);
+  if (rerun) return { kind: "rerun", gateId: rerun[1] };
   const back = /^bk:([0-9a-f-]{4,32})$/.exec(text);
   if (back) return { kind: "back", gateId: back[1] };
   const list = /^ls:([0-9a-f-]{4,32})$/.exec(text);

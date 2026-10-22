@@ -7,7 +7,8 @@
  * reads on a phone without a wall of thread replies.
  */
 
-import { parseCallback, summaryHtml, findingHtml, decisionRows, findingRows, backRows, toastFor } from "./telegram-format.mjs";
+import { parseCallback, summaryHtml, findingHtml, decisionRows, findingRows, backRows, rerunRow, toastFor } from "./telegram-format.mjs";
+import { requestRerun } from "./gate.mjs";
 import { expirePending } from "./expire.mjs";
 
 const OFFSET_KEY = "telegram_update_offset";
@@ -45,10 +46,13 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
   async function post(gateId, summary, { reviewId = null } = {}) {
     const comments = reviewId ? store.commentsFor(reviewId) : [];
     const shown = comments.slice(0, telegram.maxFindingButtons);
+    const offersRerun = Boolean(reviewId) && telegram.rerunButton !== false;
     let text = summaryHtml(summary, { comments: shown, maxFindings: telegram.maxFindingButtons });
+    // The button alone reads like a fourth verdict word, so the message says what it does.
+    if (offersRerun) text += "\n\n↻ another pass runs a fresh review of this head and supersedes this proposal.";
     if (text.length > TELEGRAM_TEXT_LIMIT) text = `${text.slice(0, TELEGRAM_TEXT_LIMIT - 1)}\n…`;
 
-    const keyboard = [decisionRows(gateId), ...findingRows(gateId, shown.length)];
+    const keyboard = [decisionRows(gateId), ...findingRows(gateId, shown.length), ...(offersRerun ? [rerunRow(gateId)] : [])];
     try {
       const sent = await call("sendMessage", {
         chat_id: chatId,
@@ -156,6 +160,18 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
             log(`gate ${parsed.gateId}: the ${parsed.kind} view could not be shown in Telegram: ${error.message}`);
             toast = "could not show that here";
           }
+        }
+      } else if (parsed.kind === "rerun") {
+        if (!gate || gate.state !== "pending") {
+          toast = "already decided";
+        } else if (allowUsers.length && !allowUsers.includes(String(cb.from?.id ?? ""))) {
+          log(`gate ${parsed.gateId}: ${who} is not in ${cfg.gate.telegram.allowUsersEnv}`);
+          toast = "not on the allow list";
+        } else {
+          requestRerun({ store, gate, by: who, log });
+          applied.push({ id: parsed.gateId, state: "rerun", decided_by: who });
+          toast = "another pass requested";
+          await settle(parsed.gateId, cb, "another pass requested", who);
         }
       } else if (!gate || gate.state !== "pending") {
         toast = "already decided";

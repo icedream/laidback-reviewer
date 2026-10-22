@@ -44,3 +44,16 @@ test("only allowlisted users can decide a gate", () => {
 test("an unrelated sentence is not parsed as a command", () => {
   assert.equal(parseDecision("I would approve ab12cd34 once the anchor is fixed", { gateIds }), null);
 });
+
+test("the rerun chip and the rerun command are recognised", () => {
+  const reactions = { approve: ["white_check_mark"], reject: ["x"], hold: ["hourglass_flowing_sand"], rerun: ["arrows_counterclockwise"] };
+  const message = { user: "U1", reactions: [{ name: "arrows_counterclockwise", users: ["U_OTHER"] }] };
+  assert.deepEqual(parseReactions(message, { allowUsers: ["U_OTHER"], reactions }), { command: "rerun", emoji: "arrows_counterclockwise", user: "U_OTHER" });
+
+  const decision = parseDecision("rerun abcd1234", { gateIds: new Set(["abcd1234"]), allowUsers: ["U_OTHER"], user: "U_OTHER" });
+  assert.deepEqual(decision, { command: "rerun", gateId: "abcd1234", reason: null });
+
+  // A decision chip still outranks nothing: the order is approve, reject, hold, rerun, and only one lands.
+  const both = { user: "U1", reactions: [{ name: "white_check_mark", users: ["U_OTHER"] }, { name: "arrows_counterclockwise", users: ["U_OTHER"] }] };
+  assert.equal(parseReactions(both, { allowUsers: ["U_OTHER"], reactions }).command, "approve");
+});

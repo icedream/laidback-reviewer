@@ -33,6 +33,7 @@ function telegramCfg(overrides = {}) {
         allowUsersEnv: "LAIDBACK_TELEGRAM_USERS",
         timeoutMs: 5_000,
         maxFindingButtons: 8,
+        rerunButton: true,
         notify: true,
       },
       ...overrides,
@@ -216,6 +217,53 @@ test("the decided gate message becomes the progress display", async () => {
     assert.equal(await f.gateTransport.status("00000000", "nowhere"), false, "a gate with no posted message is skipped");
   } finally {
     f.cleanup();
+  }
+});
+
+test("another pass can be asked for on the gate that holds the composed review", async () => {
+  const f = await fixture();
+  try {
+    const sent = f.telegram.messages.at(-1);
+    const rows = sent.reply_markup.inline_keyboard;
+    assert.deepEqual(rows.at(-1).map((b) => b.callback_data), [`rr:${f.opened.gateId}`], "the fourth control asks for another pass");
+    assert.match(sent.text, /another pass/i, "and the message says so" );
+
+    f.telegram.tap(`rr:${f.opened.gateId}`, { from: { id: 4242, username: "decider" } });
+    const applied = await f.gateTransport.readDecisions();
+    assert.deepEqual(applied.map((entry) => [entry.state, entry.decided_by]), [["rerun", "telegram:4242 @decider"]]);
+
+    // The proposal it replaces stops waiting for approval, and the head is queued for a fresh pass.
+    assert.equal(f.store.getGate(f.opened.gateId).state, "rejected");
+    assert.equal(f.store.getGate(f.opened.gateId).reason, "superseded by another pass");
+    assert.deepEqual(
+      f.store.pendingReruns().map((row) => [row.pr, row.head_sha.slice(0, 8), row.requested_by, row.gate_id]),
+      [[71, "c81a11a4", "telegram:4242 @decider", f.opened.gateId]],
+    );
+    assert.deepEqual(f.store.approvedUnpostedReviews(), [], "the superseded review is not posted behind the new pass");
+    assert.equal(f.telegram.toasts.at(-1).text, "another pass requested");
+    assert.match(f.telegram.messages.at(-1).text, /another pass requested/);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("a task gate offers no rerun control, because nothing has been composed yet", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "laidback-telegram-task-"));
+  const telegram = createTelegramFake();
+  const apiBase = await telegram.start();
+  const store = openStore(path.join(dir, "state.db"));
+  const cfg = telegramCfg();
+  try {
+    const gateTransport = createTelegramGate({ cfg, store, token: telegram.token, chatId: "4242", allowUsers: ["4242"], log: () => {}, apiBase });
+    const opened = await gateTransport.post("11112222", "PR: https://github.com/acme/svc/pull/9\nReview requested for acme/svc#9 at abc12345: bump");
+    assert.ok(opened);
+    const rows = telegram.messages.at(-1).reply_markup.inline_keyboard;
+    assert.equal(rows.length, 1, "decision row only");
+    assert.deepEqual(rows[0].map((b) => b.callback_data), ["ap:11112222", "rj:11112222", "hd:11112222"]);
+  } finally {
+    store.close();
+    telegram.close();
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 

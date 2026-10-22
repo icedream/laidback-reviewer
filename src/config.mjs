@@ -195,6 +195,7 @@ export const CONFIG_SCHEMA = record({
       timeoutMs: integer({ def: 15_000, min: 1_000 }),
       // One numbered button per finding, so a ten-finding review still fits on one screen.
       maxFindingButtons: integer({ def: 8, min: 0, max: 40 }),
+      rerunButton: bool({ def: true }),
       notify: bool({ def: true }),
     }),
     slack: record({
@@ -214,6 +215,8 @@ export const CONFIG_SCHEMA = record({
         approve: list(string(), { def: ["white_check_mark"] }),
         reject: list(string(), { def: ["x"] }),
         hold: list(string(), { def: ["hourglass_flowing_sand"] }),
+        // A better review of the same head, asked for after the reviewer itself improved.
+        rerun: list(string(), { def: ["arrows_counterclockwise"] }),
       }),
       // auto: skip seeding when the posting identity is also a possible decider, which is the case for
       // a user token, because clicking would then clear the chip rather than set it.

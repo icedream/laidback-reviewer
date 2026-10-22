@@ -65,6 +65,18 @@ CREATE TABLE IF NOT EXISTS gates (
   reason TEXT
 );
 
+CREATE TABLE IF NOT EXISTS reruns (
+  owner TEXT NOT NULL,
+  repo TEXT NOT NULL,
+  pr INTEGER NOT NULL,
+  head_sha TEXT NOT NULL,
+  requested_at TEXT NOT NULL,
+  requested_by TEXT NOT NULL,
+  gate_id TEXT,
+  consumed_at TEXT,
+  PRIMARY KEY (owner, repo, pr, head_sha)
+);
+
 CREATE TABLE IF NOT EXISTS failures (
   owner TEXT NOT NULL,
   repo TEXT NOT NULL,
@@ -215,6 +227,11 @@ export function createStore(db) {
     listFailures: db.prepare(`SELECT * FROM failures ORDER BY updated_at DESC LIMIT 100`),
     getReview: db.prepare(`SELECT * FROM reviews WHERE id = @id`),
     reviewFor: db.prepare(`SELECT * FROM reviews WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha`),
+    latestSessionFor: db.prepare(
+      `SELECT id, session_file, created_at FROM reviews
+       WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha AND session_file IS NOT NULL
+       ORDER BY created_at DESC LIMIT 1`,
+    ),
     commentsFor: db.prepare(`SELECT * FROM comments WHERE review_id = @review_id ORDER BY id`),
     openGate: db.prepare(
       `INSERT INTO gates (id, kind, review_id, state, summary, owner, repo, pr, head_sha, request_ts, created_at)
@@ -236,6 +253,12 @@ export function createStore(db) {
     setCommentTs: db.prepare(`UPDATE gates SET comment_ts = @ts WHERE id = @id`),
     setChannelMsgId: db.prepare(`UPDATE gates SET channel_msg_id = @msg_id WHERE id = @id`),
     pendingGates: db.prepare(`SELECT * FROM gates WHERE state = 'pending' ORDER BY created_at`),
+    requestRerun: db.prepare(
+      `INSERT OR REPLACE INTO reruns (owner, repo, pr, head_sha, requested_at, requested_by, gate_id, consumed_at)
+       VALUES (@owner, @repo, @pr, @head_sha, @now, @requested_by, @gate_id, NULL)`,
+    ),
+    pendingReruns: db.prepare(`SELECT * FROM reruns WHERE consumed_at IS NULL ORDER BY requested_at`),
+    consumeRerun: db.prepare(`UPDATE reruns SET consumed_at = @now WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha AND consumed_at IS NULL`),
     decideGate: db.prepare(
       `UPDATE gates SET state = @state, decided_at = @now, decided_by = @decided_by, reason = @reason WHERE id = @id`,
     ),
@@ -340,6 +363,8 @@ export function createStore(db) {
 
     getReview: (id) => statements.getReview.get({ id }),
     reviewFor: (key) => statements.reviewFor.get(key),
+    /** The transcript of the newest pass over a head, which is where a requested rerun starts from. */
+    latestSessionFor: (key) => statements.latestSessionFor.get(key),
     commentsFor: (reviewId) => statements.commentsFor.all({ review_id: reviewId }),
     markPosted({ id, github_review_id, html_url }) {
       statements.markPosted.run({ id, github_review_id, html_url, now: now() });
@@ -372,6 +397,12 @@ export function createStore(db) {
     getGate: (id) => statements.getGate.get({ id }),
     setSlackTs: ({ id, ts }) => statements.setSlackTs.run({ id, ts }),
     setChannelMsgId: ({ id, msg_id }) => statements.setChannelMsgId.run({ id, msg_id }),
+
+    /** Ask for a fresh pass over a head that was already reviewed. One request per head until it runs. */
+    requestRerun: ({ owner, repo, pr, head_sha, requested_by, gate_id = null }) =>
+      statements.requestRerun.run({ owner, repo, pr, head_sha, requested_by, gate_id, now: now() }),
+    pendingReruns: () => statements.pendingReruns.all(),
+    consumeRerun: ({ owner, repo, pr, head_sha }) => statements.consumeRerun.run({ owner, repo, pr, head_sha, now: now() }),
     /** Replies the gate itself posted, so reading a thread never mistakes one for a decision. */
     recordCommentTs: ({ id, tsList }) => statements.setCommentTs.run({ id, ts: JSON.stringify(tsList) }),
     pendingGates: () => statements.pendingGates.all(),

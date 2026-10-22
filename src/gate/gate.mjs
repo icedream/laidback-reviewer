@@ -11,6 +11,23 @@
  * event's timestamp: the same request never gates a head twice, and a newer request is a fresh ask even
  * where an older one was rejected. `askedAt` empty means the request is unknown, so only the state counts.
  */
+/**
+ * Ask for a fresh pass over a head that has already been reviewed.
+ *
+ * A composed review sitting on a post gate is rejected as superseded by the same tap: the alternative is
+ * a posted review plus a second pass nobody asked to hold. The request outlives a busy inference server,
+ * because the loop only consumes it once a pass actually ran.
+ */
+export function requestRerun({ store, gate, by, log = () => {} }) {
+  if (!gate?.owner || !gate?.head_sha) return null;
+  store.requestRerun({ owner: gate.owner, repo: gate.repo, pr: gate.pr, head_sha: gate.head_sha, requested_by: by, gate_id: gate.id });
+  if (gate.state === "pending") {
+    store.decideGate({ id: gate.id, state: "rejected", decided_by: by, reason: "superseded by another pass" });
+  }
+  log(`gate ${gate.id}: another pass requested for ${gate.owner}/${gate.repo}#${gate.pr} at ${gate.head_sha.slice(0, 8)} by ${by}`);
+  return gate;
+}
+
 export function taskGateDecision(prior, askedAt = "") {
   if (!prior) return { kind: "none", proceed: false };
   if (askedAt && (!prior.request_ts || prior.request_ts < askedAt)) return { kind: "re-requested", proceed: false };
