@@ -109,3 +109,15 @@ test("banner rephrase cannot add a verdict claim, a link, or markup", () => {
 test("assembleBody skips empty slots", () => {
   assert.equal(assembleBody({ prefix: "", body: "b", verdictLine: "", suffix: "" }), "b");
 });
+
+test("an approval the body already states is not restated by the harness", () => {
+  const config = cfg();
+  config.reviews.hintWording = { ...config.reviews.hintWording, approve: "LGTM, would normally approve at this point." };
+
+  const doubled = composeReview({ proposal: proposal({ body: "The manifests are tidy, nothing here breaks a call site." }), cfg: config, files, headSha: "abc" });
+  assert.match(doubled.payload.body, /LGTM, would normally approve/);
+
+  const stated = composeReview({ proposal: proposal({ body: "LGTM. The manifests are tidy and nothing here breaks a call site." }), cfg: config, files, headSha: "abc" });
+  const lgtms = (stated.payload.body.match(/LGTM/g) ?? []).length;
+  assert.equal(lgtms, 1, `the verdict formula appeared ${lgtms} times:\n${stated.payload.body}`);
+});

@@ -22,7 +22,20 @@ const VERDICT_ACTION = {
 
 function verdictLineFor(verdict, action, cfg, proposal) {
   if (action !== "hint") return "";
-  if (verdict === "approve") return cfg.reviews.hintWording.approve;
+  if (verdict === "approve") {
+    // The agent's own body may open with the org's approval formula. This line states the gate's policy
+    // state, so where the verdict word is already in front of the reader it says nothing new twice.
+    const opener = String(proposal?.body ?? "")
+      .trim()
+      .split("\n")[0]
+      .toLowerCase();
+    const formula = String(cfg.reviews.hintWording.approve)
+      .trim()
+      .split(/[,.;]/)[0]
+      .toLowerCase();
+    if (formula && opener.startsWith(formula)) return "";
+    return cfg.reviews.hintWording.approve;
+  }
   if (verdict === "request_changes") {
     const blockers = (proposal?.blocking ?? []).filter(Boolean);
     const base = cfg.reviews.hintWording.requestChanges;

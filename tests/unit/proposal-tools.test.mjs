@@ -34,9 +34,12 @@ test("the same sentence on another line is another comment", async () => {
 
   await comment.execute("1", { path: "go.mod", line: 119, body: "same sentence" });
   await comment.execute("2", { path: "go.mod", line: 7, body: "same sentence" });
-  await comment.execute("3", { path: "go.mod", line: 119, start_line: 110, body: "same sentence" });
 
-  assert.equal(collector.comments.length, 3);
+  assert.equal(collector.comments.length, 2, "two sites, two comments");
+
+  // A range comment that already covers the line is the same site, not a second one.
+  await comment.execute("3", { path: "go.mod", line: 119, start_line: 110, body: "same sentence" });
+  assert.equal(collector.comments.length, 2, "the range wraps the finding it already carries");
 });
 
 test("a suggestion is part of the finding, not a duplicate of it", async () => {

@@ -8,6 +8,7 @@
 
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
+import { nearDuplicate } from "../proposal/dedupe.mjs";
 
 export function createProposalCollector() {
   return {
@@ -59,19 +60,16 @@ export function createReviewTools({ collector, limits = {} }) {
     }),
     async execute(_id, params) {
       // The same finding queued twice reaches GitHub twice and reads as padding, so the second one is
-      // refused where it happens rather than filtered on the way out.
-      const duplicate = collector.comments.find(
-        (queued) =>
-          queued.path === params.path &&
-          queued.line === params.line &&
-          (queued.start_line ?? null) === (params.start_line ?? null) &&
-          String(queued.body).trim() === String(params.body).trim(),
-      );
+      // refused where it happens rather than filtered on the way out. A re-drafted wording of a finding
+      // already queued counts the same as a verbatim repeat.
+      const duplicate = nearDuplicate(collector.comments, params);
       if (duplicate) {
-        return textResult(`already queued: ${params.path}:${params.start_line ?? params.line} carries this finding. Add a different one or fold it into the body.`, {
-          queued: false,
-          duplicate: true,
-        });
+        return textResult(
+          `already queued: ${params.path}:${duplicate.start_line ?? duplicate.line} carries this finding${
+            duplicate === params ? "" : ` (${String(duplicate.body).split("\n")[0].slice(0, 80)}...)`
+          }. Add a different one, or fold it into the body.`,
+          { queued: false, duplicate: true },
+        );
       }
       if (collector.comments.length >= maxComments) {
         return textResult(
