@@ -190,15 +190,41 @@ test("nothing inside the window means a cold start, and the current head is neve
     assert.equal(cold.matched, false);
     assert.match(cold.reason, /no review of this repository/);
 
-    // Same PR, same head: the run that is being re-attempted, not a previous look.
-    seed(store, { pr: 143, headSha: prView().head.sha, comments: [{ path: "a.go", line: 1, body: "x" }] });
+    // Same PR, same head: a re-request over the head that was already reviewed. Refusing this is how the
+    // pass came back with the same findings twice.
+    seed(store, { pr: 143, headSha: prView().head.sha, comments: [{ path: "a.go", line: 1, body: "the guard is missing" }] });
     const same = pickContext({ cfg: contextCfg(), store, pr: prView(), stack: { siblings: [] }, files: [{ filename: "a.go" }] });
-    assert.equal(same.matched, false);
+    assert.equal(same.matched, true);
+    assert.equal(same.kind, "same_head");
+    assert.match(same.instructions, /a\.go:1: the guard is missing/);
 
     // context.enabled=false is honoured without touching the store.
     const off = pickContext({ cfg: { context: { enabled: false } }, store, pr: prView(), stack: { siblings: [] }, files: [{ filename: "a.go" }] });
     assert.equal(off.matched, false);
     assert.equal(off.reason, "context.enabled=false");
+  } finally {
+    store.close();
+  }
+});
+
+test("a re-request over the same head carries what that head's earlier pass concluded", () => {
+  const store = openStore(":memory:");
+  try {
+    const pr = prView();
+    seed(store, {
+      pr: pr.number,
+      headSha: pr.head.sha,
+      body: "The context leak in the stream handler is the blocker.",
+      comments: [{ path: "internal/service/stream.go", line: 44, body: "The span is never ended on the error path." }],
+    });
+
+    const picked = pickContext({ cfg: contextCfg(), store, pr, stack: { siblings: [] }, files: [{ filename: "internal/service/stream.go" }] });
+
+    assert.equal(picked.matched, true, "the earlier pass over this head is the best context there is");
+    assert.equal(picked.kind, "same_head");
+    assert.match(picked.description, /an earlier pass over this same head, PR #143/);
+    assert.match(picked.instructions, /internal\/service\/stream\.go:44: The span is never ended on the error path\./);
+    assert.match(picked.instructions, /context leak in the stream handler/);
   } finally {
     store.close();
   }

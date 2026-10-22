@@ -12,6 +12,7 @@ import fs from "node:fs";
 import { extractTicketKeys } from "../agent/prompt.mjs";
 
 const PRIORITIES = [
+  { kind: "same_head", label: "an earlier pass over this same head" },
   { kind: "same_pr", label: "the same PR at an earlier head" },
   { kind: "stack_sibling", label: "a sibling PR in this stack" },
   { kind: "same_branch", label: "the same branch" },
@@ -29,6 +30,9 @@ function estimateTokens(file) {
 
 function matchKind(review, { pr, stack, ticketKeys, changedPaths }) {
   if (review.crossRepo) return "same_ticket";
+  // A re-request asks the same head again. What that pass concluded is the one thing worth carrying, and
+  // the row is written after composition, so the current pass cannot be its own earlier session.
+  if (review.pr === pr.number && review.head_sha === headOf(pr)) return "same_head";
   if (review.pr === pr.number && review.head_sha !== headOf(pr)) return "same_pr";
   if (stack.siblings.includes(review.pr)) return "stack_sibling";
   if (review.branch && review.branch === pr.head.ref) return "same_branch";
@@ -62,10 +66,9 @@ export function pickContext({ cfg, store, pr, stack, files, now = new Date() }) 
   const ticketKeys = extractTicketKeys(`${pr.title}\n${pr.body ?? ""}\n${pr.head.ref}`);
   const changedPaths = files.map((file) => file.filename);
   const enrich = (row) => ({ ...row, commentPaths: store.commentsFor(row.id).map((comment) => comment.path) });
-  const candidates = store
-    .recentReviews({ owner: pr.owner, repo: pr.repo, sinceIso })
-    .map(enrich)
-    .filter((row) => row.head_sha !== headOf(pr));
+  // No head filter here: a re-request over the same head is the case where the earlier conclusion matters
+  // most, and the row for the current pass does not exist yet, so it cannot carry itself.
+  const candidates = store.recentReviews({ owner: pr.owner, repo: pr.repo, sinceIso }).map(enrich);
 
   if (cfg.context.allowCrossRepo) {
     // A ticket that spans services is the only cross-repo signal worth following: what carries over

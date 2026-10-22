@@ -71,10 +71,15 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, r
   if (lint) sections.push(lintBlock(lint));
 
   if (prior.reviews?.length || prior.comments?.length) {
-    const existing = [
-      ...prior.reviews.map((review) => `review ${review.id} by ${review.user?.login}: ${review.state}`),
-      ...prior.comments.map((comment) => `inline on ${comment.path}:${comment.line}: ${String(comment.body ?? "").replace(/\s+/g, " ").slice(0, 160)}`),
-    ];
+    const clip = (text, max) => String(text ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+    const existing = prior.reviews.flatMap((review) => {
+      // The body is the finding. Author and state alone tell the agent a review exists, which is how it
+      // ends up reporting the same issue a second time on the same PR.
+      const line = `review ${review.id} by ${review.user?.login} (${review.state})`;
+      const body = clip(review.body, 2_000);
+      return body ? [`${line}:`, `  ${body}`] : [line];
+    });
+    existing.push(...prior.comments.map((comment) => `inline on ${comment.path}:${comment.line}: ${clip(comment.body, 600)}`));
     sections.push(["Already on this PR (do not repeat these findings):", ...existing].join("\n"));
   } else {
     sections.push("No review and no inline comment exists on this PR yet.");

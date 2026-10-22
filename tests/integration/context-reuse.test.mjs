@@ -82,16 +82,22 @@ test("a small earlier session is forked instead of summarised", async () => {
   }
 });
 
-test("a re-run at the same head finds no context of its own", async () => {
-  const env = await setupReviewRun({ context: { mode: "digest" }, overrides: { reviews: { rereviewOnPush: true } } });
+test("a second pass over the same head carries the first pass's conclusions", async () => {
+  // The re-request case: the head did not move, so the earlier verdict over it is the most useful thing to
+  // hand the model. Excluding it is what made a second pass report the same findings again.
+  const env = await setupReviewRun({ context: { mode: "digest" } });
   try {
-    await env.run();
+    const first = await env.run();
     env.model.resetTurns();
-    await env.run();
-    assert.match(env.log(), /context: none/);
-    assert.ok(!/context: (digest|fork)/.test(env.log()), "a run at the head it already reviewed carries nothing over");
-    const prompt = JSON.stringify(env.model.requests());
-    assert.doesNotMatch(prompt, /Continuing from an earlier look/);
+    const requestsBefore = env.model.requests().length;
+
+    const second = await env.run({ manual: true });
+    assert.ok(second.reviewId, "the second pass composes");
+
+    assert.match(env.log(), /context: digest from #143 \(same_head\)/);
+    const prompt = JSON.stringify(env.model.requests().slice(requestsBefore));
+    assert.match(prompt, /Continuing from an earlier look: an earlier pass over this same head, PR #143/);
+    assert.match(prompt, /internal\/(api|service)\/[a-z_]+\.go:\d+: /, "the findings themselves, as data");
   } finally {
     env.close();
   }

@@ -74,15 +74,15 @@ test("what is already on the PR is named, so the review does not repeat it", () 
       reviews: [{ id: 1, user: { login: "maintainer" }, state: "CHANGES_REQUESTED" }],
       comments: [
         { id: 2, path: "internal/server/server.go", line: 88, body: "This swallows the context cancellation error.\n\nRetry with a timeout." },
-        { id: 3, path: "go.mod", line: 12, body: "x".repeat(400) },
+        { id: 3, path: "go.mod", line: 12, body: "x".repeat(900) },
       ],
     },
   });
 
   assert.match(prompt, /Already on this PR \(do not repeat these findings\):/);
-  assert.match(prompt, /review 1 by maintainer: CHANGES_REQUESTED/);
+  assert.match(prompt, /review 1 by maintainer \(CHANGES_REQUESTED\)/);
   assert.match(prompt, /inline on internal\/server\/server\.go:88: This swallows the context cancellation error\. Retry with a timeout\./);
-  assert.ok(prompt.includes("x".repeat(160)) && !prompt.includes("x".repeat(161)), "a long body is clipped, not pasted whole");
+  assert.ok(prompt.includes("x".repeat(600)) && !prompt.includes("x".repeat(601)), "a long body is clipped, not pasted whole");
 });
 
 test("a PR nobody has looked at says so", () => {
@@ -119,4 +119,22 @@ test("a resumed run is told it is continuing, not starting over", () => {
 
   const plain = buildTaskPrompt({ pr, files, checkoutDir: "/work/scratch/acme-svc-7-abcdef01", headSha: pr.head.sha });
   assert.doesNotMatch(plain, /Resumed run/);
+});
+
+test("what is already on the PR includes what the earlier review actually said", () => {
+  const prompt = buildTaskPrompt({
+    pr,
+    files,
+    checkoutDir: "/work/scratch/acme-svc-7-abcdef01",
+    headSha: pr.head.sha,
+    prior: {
+      reviews: [{ id: 900, user: { login: "octocat" }, state: "CHANGES_REQUESTED", body: "The grpc dependency is re-pinned below trunk, which loses the GHSA fix.\nSecond paragraph of the same finding." }],
+      comments: [{ path: "go.mod", line: 126, body: "x".repeat(900) }],
+    },
+  });
+  assert.match(prompt, /The grpc dependency is re-pinned below trunk/);
+  assert.ok(prompt.includes("Second paragraph of the same finding."), "author and state alone do not stop a repeat");
+  assert.match(prompt, /inline on go\.mod:126: xxx+/, "inline bodies carry, clipped");
+  const longest = (prompt.match(/x+/g) ?? []).reduce((max, run) => Math.max(max, run.length), 0);
+  assert.ok(longest <= 600, `expected the inline body clipped, saw a run of ${longest}`);
 });
