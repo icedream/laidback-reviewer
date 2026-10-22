@@ -3,6 +3,10 @@ data/
 work/
 .env
 .pi/agent/auth.json
+.pi/agent/mcp.json
+.pi/agent/mcp-auth.json
+.pi/agent/mcp-oauth/
+.pi/agent/mcp.log
 .pi/agent/models.json
 .pi/agent/models-store.json
 .pi/agent/npm/

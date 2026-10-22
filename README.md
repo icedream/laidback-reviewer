@@ -236,6 +236,48 @@ probe result, the checkout and comparison paths, which linter it settled on, the
 over, and how the policy mapped the verdict. A run that ends early, whether cancelled or failed, stops
 its heartbeat and disposes its session, so the process exits instead of printing `still working`.
 
+## Ticket access
+
+A review reads the ticket a PR names in its title, body or branch, but only when an MCP server is wired up.
+The session loads servers from `mcp.json` in the agent directory, and this repository ships the Atlassian
+entry as `.pi/agent/mcp.json.dist`. Nothing is connected until you copy it into place:
+
+```bash
+cp .pi/agent/mcp.json.dist .pi/agent/mcp.json
+PI_CODING_AGENT_DIR="$PWD/.pi/agent" pi mcp login atlassian
+PI_CODING_AGENT_DIR="$PWD/.pi/agent" pi mcp list   # atlassian: connected, 10 tools
+```
+
+`mcp.json` is gitignored because it holds per-machine servers and nothing worth publishing. The sign-in
+writes `mcp-auth.json` beside it. That is an OAuth credential with `offline_access` in scope, which pi
+refreshes in place, so no browser is needed again until the refresh token itself dies. In the container
+both files are bind mounts, `mcp.json` read-only and `mcp-auth.json` writable, since a refresh rewrites it:
+
+```yaml
+volumes:
+  - type: bind
+    source: ${PWD}/.pi/agent/mcp.json
+    target: /app/.pi/agent/mcp.json
+    read_only: true
+  - type: bind
+    source: ${PWD}/.pi/agent/mcp-auth.json
+    target: /app/.pi/agent/mcp-auth.json
+```
+
+They live in the override file rather than the base one: a bind whose source is missing becomes a directory,
+and `mcp-auth.json` only exists once you have signed in.
+
+An API token in a bearer header is the other shape, and it fails differently than you would expect. It
+authenticates, lists your sites as read-write, and then answers every Jira and Confluence read with `You
+don't have permission to connect via API token. Please ask your organization admin for access.` Atlassian
+gates that endpoint per organisation, so the header route needs an admin to enable it. OAuth does not.
+
+Whichever credential you use, a review run can only read. `getJiraIssue`, `searchJiraIssuesUsingJql`,
+`getConfluenceContent`, `searchConfluence`, `getAccessibleAtlassianResources`, `discover` and `executeRead`
+pass; `executeWrite`, `executeDestructive`, `execute`, and any comment or issue edit are refused before the
+call leaves the process, whatever the credential allows. `tools.mcp: [atlassian]` in config.yaml is what
+exposes the server to the model at all.
+
 ## Linter versions
 
 The image ships `golangci-lint` v2, pinned by `GOLANGCI_LINT_VERSION` at build time. That is a floor:
