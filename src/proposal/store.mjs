@@ -85,6 +85,8 @@ CREATE TABLE IF NOT EXISTS deferrals (
   until_at TEXT NOT NULL,
   reason TEXT,
   session_file TEXT,
+  run_id TEXT,
+  checkout_dir TEXT,
   updated_at TEXT NOT NULL,
   PRIMARY KEY (owner, repo, pr, head_sha)
 );
@@ -143,6 +145,13 @@ export function openStore(path) {
   } catch {
     // present already
   }
+  for (const column of ["run_id TEXT", "checkout_dir TEXT"]) {
+    try {
+      db.exec(`ALTER TABLE deferrals ADD COLUMN ${column}`);
+    } catch {
+      // present already
+    }
+  }
   return createStore(db);
 }
 
@@ -193,13 +202,14 @@ export function createStore(db) {
     ),
     clearFailure: db.prepare(`DELETE FROM failures WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha`),
     upsertDeferral: db.prepare(
-      `INSERT INTO deferrals (owner, repo, pr, head_sha, until_at, reason, session_file, updated_at)
-       VALUES (@owner, @repo, @pr, @head_sha, @until_at, @reason, @session_file, @now)
+      `INSERT INTO deferrals (owner, repo, pr, head_sha, until_at, reason, session_file, run_id, checkout_dir, updated_at)
+       VALUES (@owner, @repo, @pr, @head_sha, @until_at, @reason, @session_file, @run_id, @checkout_dir, @now)
        ON CONFLICT (owner, repo, pr, head_sha)
-       DO UPDATE SET until_at = @until_at, reason = @reason, session_file = @session_file, updated_at = @now`,
+       DO UPDATE SET until_at = @until_at, reason = @reason, session_file = @session_file, run_id = @run_id, checkout_dir = @checkout_dir, updated_at = @now`,
     ),
     deferralFor: db.prepare(`SELECT * FROM deferrals WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha`),
     activeDeferrals: db.prepare(`SELECT * FROM deferrals WHERE until_at > @now ORDER BY until_at`),
+    allDeferrals: db.prepare("SELECT * FROM deferrals ORDER BY until_at"),
     clearDeferral: db.prepare(`DELETE FROM deferrals WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha`),
     listFailures: db.prepare(`SELECT * FROM failures ORDER BY updated_at DESC LIMIT 100`),
     getReview: db.prepare(`SELECT * FROM reviews WHERE id = @id`),
@@ -249,11 +259,25 @@ export function createStore(db) {
     recordFailure: (row) => statements.upsertFailure.run({ ...row, now: row.now ?? now() }),
     clearFailure: (key) => statements.clearFailure.run(key),
     /** A head set aside because the model server was occupied, not because the review failed. */
-    deferHead({ owner, repo, pr, head_sha, until_at, reason, sessionFile = null }) {
-      statements.upsertDeferral.run({ owner, repo, pr, head_sha, until_at, reason: reason ?? null, session_file: sessionFile, now: now() });
+    deferHead({ owner, repo, pr, head_sha, until_at, reason, sessionFile = null, runId = null, checkoutDir = null }) {
+      statements.upsertDeferral.run({
+        owner,
+        repo,
+        pr,
+        head_sha,
+        until_at,
+        reason: reason ?? null,
+        session_file: sessionFile,
+        run_id: runId,
+        checkout_dir: checkoutDir,
+        now: now(),
+      });
     },
     deferralFor: (key) => statements.deferralFor.get(key),
     activeDeferrals: () => statements.activeDeferrals.all({ now: now() }),
+    // Expired rows still matter: they are the deferrals whose scratch tree must survive until the pass
+    // that resumes them runs.
+    allDeferrals: () => statements.allDeferrals.all(),
     clearDeferral: (key) => statements.clearDeferral.run(key),
     listFailures: () => statements.listFailures.all(),
 

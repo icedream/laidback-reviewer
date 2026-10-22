@@ -6,7 +6,7 @@
  * rather than queue. Separate from index.mjs so a cycle can be driven from a test.
  */
 
-import { prepareCheckout, releaseWorktree } from "./checkout.mjs";
+import { prepareCheckout, releaseWorktree, sweepScratch } from "./checkout.mjs";
 import { findCandidates } from "./discovery.mjs";
 import { taskGateDecision } from "./gate/gate.mjs";
 import { clearFailure, failurePlan, recordFailure } from "./proposal/retries.mjs";
@@ -30,6 +30,10 @@ export async function cycle({
     const decided = await slack.readDecisions();
     for (const gate of decided) log(`gate ${gate.id} ${gate.state} by ${gate.decided_by}${gate.reason ? ` (${gate.reason})` : ""}`);
   }
+
+  // A deferral keeps its tree; a tree no deferral keeps is garbage, and garbage here is also misleading
+  // because a later pass could read another run's comparison files as its own.
+  sweepScratch({ cfg, keepRunIds: store.allDeferrals().map((row) => row.run_id), olderThanMs: cfg.checkout.keepScratchMs, log });
 
   // Reviews an admin approved between cycles go out now, re-anchored against the current head. One
   // failure must not cost the rest of the cycle: the row stays queued and is retried next time.
@@ -77,6 +81,7 @@ export async function cycle({
 
     log(`  candidate ${candidate.htmlUrl}: ${candidate.reason}${candidate.reRequest ? ` (re-requested ${candidate.reRequest.askedAt.slice(0, 16)}, earlier pass ${candidate.reRequest.handledAt.slice(0, 16)})` : ""}${plan.attempts ? ` (${plan.reason})` : ""}`);
     let checkout = null;
+    let keepCheckout = false;
     try {
       checkout = prepareCheckout({
         cfg,
@@ -85,6 +90,9 @@ export async function cycle({
         pr: candidate.pr,
         headRef: candidate.headRef,
         headSha: candidate.headSha,
+        // The pass that was interrupted left its tree where its transcript says it is. Same run id, same
+        // paths, so the resumed model can keep reading the files it already looked at.
+        runId: deferral?.run_id || undefined,
         log,
       });
       const result = await runReview({
@@ -92,7 +100,7 @@ export async function cycle({
         store,
         client,
         slack,
-        task: { owner: candidate.owner, repo: candidate.repo, pr: candidate.pr, checkoutDir: checkout.dir, compareDir: checkout.compareDir, runId: checkout.runId, reRequest: candidate.reRequest ?? null, requestTs: candidate.requestTs ?? null, resumeSessionFile: deferral?.session_file ?? null, resumedAt: deferral?.until_at ?? "" },
+        task: { owner: candidate.owner, repo: candidate.repo, pr: candidate.pr, checkoutDir: checkout.dir, compareDir: checkout.compareDir, runId: checkout.runId, reRequest: candidate.reRequest ?? null, requestTs: candidate.requestTs ?? null, resumeScratchKept: Boolean(deferral?.run_id && checkout.runId === deferral.run_id), resumeSessionFile: deferral?.session_file ?? null, resumedAt: deferral?.until_at ?? "" },
         piAgentDir,
         artifactDir,
         log,
@@ -106,15 +114,17 @@ export async function cycle({
         // Nothing about the PR went wrong, so the head is put back for later instead of burning an
         // attempt: a shared inference slot must not park a review that was never run.
         const until = new Date(Date.now() + cfg.agent.model.deferMs).toISOString();
-        store.deferHead({ ...key, until_at: until, reason: error.message, sessionFile: error.sessionFile ?? null });
-        log(`    deferred: ${error.message}, retry after ${until.slice(11, 16)}`);
+        store.deferHead({ ...key, until_at: until, reason: error.message, sessionFile: error.sessionFile ?? null, runId: error.runId ?? null, checkoutDir: error.checkoutDir ?? null });
+        // The transcript names paths in this tree. Deleting it here is what turns a pause into a restart.
+        keepCheckout = true;
+        log(`    deferred: ${error.message}, retry after ${until.slice(11, 16)}${checkout ? `, tree kept at ${checkout.dir}` : ""}`);
         continue;
       }
       // Recorded against this head so the next cycle waits rather than re-running a busy server
       // or a branch that does not build.
       recordFailure({ cfg, store, key, error, log });
     } finally {
-      if (checkout) releaseWorktree({ ...checkout, cfg, log });
+      if (checkout && !keepCheckout) releaseWorktree({ ...checkout, cfg, log });
     }
   }
 }

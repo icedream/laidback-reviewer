@@ -98,8 +98,12 @@ test("a deferral remembers the session it stopped in", () => {
   const store = openStore(":memory:");
   try {
     const key = { owner: "acme", repo: "api", pr: 12, head_sha: "a".repeat(40) };
-    store.deferHead({ ...key, until_at: "2026-04-04T00:00:00.000Z", reason: "model server busy", sessionFile: "/data/sessions/run-1.jsonl" });
-    assert.equal(store.deferralFor(key).session_file, "/data/sessions/run-1.jsonl");
+    store.deferHead({ ...key, until_at: "2026-04-04T00:00:00.000Z", reason: "model server busy", sessionFile: "/data/sessions/run-1.jsonl", runId: "run11111", checkoutDir: "/work/scratch/acme-api-12-abcdef12-run11111" });
+    const row = store.deferralFor(key);
+    assert.equal(row.session_file, "/data/sessions/run-1.jsonl");
+    assert.equal(row.run_id, "run11111", "the tree the transcript names is found by run id");
+    assert.equal(row.checkout_dir, "/work/scratch/acme-api-12-abcdef12-run11111");
+    assert.deepEqual(store.allDeferrals().map((d) => d.run_id), ["run11111"], "an expired deferral still guards its tree");
     store.clearDeferral(key);
     assert.equal(store.deferralFor(key), undefined);
   } finally {

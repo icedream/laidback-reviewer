@@ -104,6 +104,63 @@ export function prepareCheckout({ cfg, owner, repo, pr, headRef, headSha, runId 
   return { dir, headSha, cachedClone: cached, runId, compareDir: compare };
 }
 
+/**
+ * Remove scratch nothing can resume from. A deferred pass keeps its tree because its transcript names the
+ * paths in it; once no deferral points at a run id the tree is garbage, and left in place it is also
+ * misleading, since a later pass could read it as its own comparison data.
+ *
+ * Run ids are the last path segment of a scratch or comparison directory, which is what makes the keep list
+ * a set of run ids rather than a scan of the state database.
+ */
+export function sweepScratch({ cfg, keepRunIds = [], olderThanMs, now = Date.now(), log = () => {} }) {
+  const roots = [path.resolve(cfg.checkout.scratch), path.resolve(cfg.checkout.compareDir)];
+  const keep = new Set(keepRunIds.filter(Boolean));
+  const removed = [];
+  for (const root of roots) {
+    let entries = [];
+    try {
+      entries = fs.readdirSync(root, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const full = path.join(root, entry.name);
+      if (keep.has(entry.name.split("-").at(-1))) continue;
+      let age = 0;
+      try {
+        age = now - fs.statSync(full).mtimeMs;
+      } catch {
+        continue;
+      }
+      if (age < olderThanMs) continue;
+      fs.rmSync(full, { recursive: true, force: true });
+      removed.push(full);
+    }
+  }
+  if (removed.length) {
+    // The cached clones still list these as registered worktrees.
+    const reposRoot = path.dirname(path.resolve(cfg.checkout.repos));
+    for (const cached of safeEntries(reposRoot)) {
+      try {
+        git(["worktree", "prune"], { cwd: path.join(reposRoot, cached), cfg });
+      } catch {
+        // not a clone, or nothing to prune
+      }
+    }
+    log(`scratch: ${removed.length} abandoned tree(s) older than ${Math.round(olderThanMs / 60000)}min removed`);
+  }
+  return removed;
+}
+
+function safeEntries(dir) {
+  try {
+    return fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+}
+
 export function releaseWorktree({ cfg, dir, cachedClone, compareDir, log = () => {} }) {
   if (cachedClone) {
     try {
@@ -128,8 +185,8 @@ export function configureGitAuth({ cfg, dir, log = () => {} }) {
   // `git clone`, or a tool the repository's own Makefile calls.
   process.env.GIT_CONFIG_GLOBAL = path.resolve(cfg.checkout.gitConfig || ".pi/gitconfig");
   fs.mkdirSync(path.dirname(process.env.GIT_CONFIG_GLOBAL), { recursive: true });
-  // Quoted: an unquoted `;` is a comment to git's config parser, so the helper is read as
-  // `f(){ echo username=x-access-token` and every shell-out fails with a shell syntax error.
+  // Quoted: an unquoted `;` is a comment to git's config parser, so the helper would be read as
+  // `f(){ echo username=x-access-token` and every shell-out would fail with a shell syntax error.
   const desired = `[credential]\n\thelper = "${helper}"\n[url "https://github.com/"]\n\tinsteadOf = git@github.com:\n`;
   // Rewrite whenever the file disagrees with this run's token variable. A file left over from an older
   // version of the harness would otherwise keep a malformed helper, and git then tries to exec
@@ -139,8 +196,8 @@ export function configureGitAuth({ cfg, dir, log = () => {} }) {
     fs.writeFileSync(process.env.GIT_CONFIG_GLOBAL, desired);
     if (current !== null) log(`git auth: rewrote ${process.env.GIT_CONFIG_GLOBAL}, its credential helper did not match this run`);
   }
-  // Read it back through git rather than trusting the write: the alternative is a review that gets
-  // part-way through a private module download and reports a shell syntax error.
+  // Read it back through git rather than trusting the write: the failure mode otherwise is a review that
+  // gets part-way through a private module download and reports a shell syntax error.
   const readBack = execFileSync("git", ["config", "--global", "--get", "credential.helper"], {
     encoding: "utf8",
     env: { ...process.env, GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL },

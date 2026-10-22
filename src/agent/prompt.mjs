@@ -92,12 +92,19 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, r
 
   if (resume) {
     sections.push(
-      [
-        `Resumed run: an earlier pass of this review was interrupted${resume.at ? ` at ${resume.at}` : ""}`,
-        `because the inference server was occupied. Its transcript is part of this session, so continue`,
-        "where it stopped rather than repeating finished steps. Its scratch and comparison directories are",
-        "gone: re-run any command whose output you quote, and do not rely on results you cannot reproduce.",
-      ].join("\n"),
+      resume.scratchKept
+        ? [
+            `Resumed run: an earlier pass of this review was interrupted${resume.at ? ` at ${resume.at}` : ""}`,
+            "because the inference server was occupied. Its transcript is part of this session and its",
+            `scratch tree is still in place at ${checkoutDir}: the files and comparison copies it read are`,
+            "still there, so continue where it stopped instead of repeating finished steps.",
+          ].join("\n")
+        : [
+            `Resumed run: an earlier pass of this review was interrupted${resume.at ? ` at ${resume.at}` : ""}`,
+            "because the inference server was occupied. Its transcript is part of this session, so continue",
+            "where it stopped rather than repeating finished steps. Its scratch and comparison directories are",
+            "gone: re-run any command whose output you quote, and do not rely on results you cannot reproduce.",
+          ].join("\n"),
     );
   }
 

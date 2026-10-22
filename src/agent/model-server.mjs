@@ -64,6 +64,30 @@ export async function slotsProbe({ root, apiKey, model, timeoutMs = 3000, fetchI
   return { source: "slots", busy: processing > 0, queued: 0, phase: processing ? `${processing}/${body.length} slots processing` : "slots idle" };
 }
 /**
+ * What the slot still holds. A resumed pass either picks up a warm prompt cache or re-prefills from token
+ * zero, and only the server knows which: this is the number that decides whether saving the slot is worth
+ * building at all.
+ */
+export async function slotOccupancy({ root, apiKey, model, timeoutMs = 3000, fetchImpl = fetch }) {
+  const query = new URLSearchParams();
+  if (model) {
+    query.set("model", model);
+    // A router loads a model to answer about it. Asking about a model that is not resident must not start
+    // a multi-minute load in the middle of a review.
+    query.set("autoload", "false");
+  }
+  const qs = query.toString();
+  const body = await getJson(`${root}/slots${qs ? `?${qs}` : ""}`, { apiKey, timeoutMs, fetchImpl });
+  if (!Array.isArray(body)) return null;
+  const held = body.map((slot) => slot?.n_prompt_tokens).filter((n) => typeof n === "number");
+  return {
+    promptTokens: held.length ? Math.max(...held) : null,
+    slotCount: body.length,
+    processing: body.filter((slot) => slot?.is_processing).length,
+  };
+}
+
+/**
  * No status endpoint: ask for one token and see how fast it answers. A slow answer means the slot is
  * taken; an unreachable server is reported separately, because that is a failure rather than a queue.
  */

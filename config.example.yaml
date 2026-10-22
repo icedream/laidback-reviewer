@@ -81,6 +81,7 @@ checkout:
   goFlags: ""
   commandTimeoutMs: 60000            # worktree add, rev-parse, config
   transferTimeoutMs: 300000          # clone and fetch
+  keepScratchMs: 21600000            # a deferred pass keeps its tree; 6h once nothing can resume it
 
 toolchain:
   golangciLint: auto                # auto = install what the repo pins | off = image version | v2.3.1 = that tag

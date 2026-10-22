@@ -12,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { modelServerStatus, resolveModelServer, serverRoot, slotsProbe, statusProbe, latencyProbe } from "../../src/agent/model-server.mjs";
+import { slotOccupancy } from "../../src/agent/model-server.mjs";
 
 const abortError = () => Object.assign(new Error("The operation was aborted"), { name: "AbortError" });
 
@@ -130,4 +131,32 @@ test("the provider's URL and key come from the models.json Pi reads", () => {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("the slot numbers say what a resumed pass would have to recompute", async () => {
+  const seen = [];
+  const fetchImpl = async (url) => {
+    seen.push(String(url));
+    return {
+      ok: true,
+      status: 200,
+      json: async () => [
+        { id: 0, n_ctx: 393216, is_processing: false, n_prompt_tokens: 41208 },
+        { id: 1, n_ctx: 393216, is_processing: true, n_prompt_tokens: 900 },
+      ],
+    };
+  };
+
+  const occupancy = await slotOccupancy({ root: "http://127.0.0.1:8080", apiKey: "k", model: "qwen", fetchImpl });
+  assert.deepEqual(occupancy, { promptTokens: 41208, slotCount: 2, processing: 1 });
+  assert.match(seen[0], /\/slots\?model=qwen&autoload=false/, "a question about a slot must not load a model");
+
+  const quiet = await slotOccupancy({
+    root: "http://127.0.0.1:8080",
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => [{ id: 0, is_processing: false }] }),
+  });
+  assert.equal(quiet.promptTokens, null, "a server that does not report the number says so rather than zero");
+
+  const refused = await slotOccupancy({ root: "http://127.0.0.1:8080", fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ error: "nope" }) }) });
+  assert.equal(refused, null);
 });

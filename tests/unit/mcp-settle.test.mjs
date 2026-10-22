@@ -12,7 +12,9 @@ import { waitForMcpTools } from "../../src/agent/mcp-settle.mjs";
 /** Hands back the snapshots in order, repeating the last one. */
 function fakeSession(snapshots) {
   let call = 0;
-  return { getActiveToolNames: () => snapshots[Math.min(call++, snapshots.length - 1)] };
+  const session = { getActiveToolNames: () => snapshots[Math.min(call++, snapshots.length - 1)] };
+  Object.defineProperty(session, "polls", { get: () => call });
+  return session;
 }
 
 test("waits for the server's tools to land", async () => {
@@ -23,7 +25,7 @@ test("waits for the server's tools to land", async () => {
   assert.deepEqual(result.ready, ["atlassian"]);
   assert.deepEqual(result.missing, []);
   assert.equal(result.settled, true);
-  assert.ok(result.waitedMs >= 40, `waited ${result.waitedMs}ms for two polls`);
+  assert.ok(session.polls >= 3, `expected at least three looks at the tool list, got ${session.polls}`);
 });
 
 test("a server that never connects degrades instead of failing the run", async () => {

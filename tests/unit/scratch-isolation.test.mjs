@@ -11,7 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { comparisonDir, newRunId, releaseWorktree, worktreeDir } from "../../src/checkout.mjs";
+import { comparisonDir, newRunId, releaseWorktree, sweepScratch, worktreeDir } from "../../src/checkout.mjs";
 
 const cfg = { checkout: { mode: "clone", scratch: "/work/scratch", compareDir: "/work/scratch/refs" } };
 
@@ -51,4 +51,35 @@ test("release removes the comparisons a run fetched", () => {
 test("run ids differ", () => {
   const ids = new Set(Array.from({ length: 25 }, () => newRunId()));
   assert.equal(ids.size, 25);
+});
+
+test("scratch nothing can resume is swept, scratch a deferral keeps is not", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "laidback-sweep-"));
+  const scratch = path.join(dir, "scratch");
+  const cfg = { checkout: { scratch, compareDir: path.join(scratch, "refs"), repos: path.join(dir, "repos") } };
+  const day = 86_400_000;
+  const touch = (name, ageMs) => {
+    const full = path.join(scratch, name);
+    fs.mkdirSync(full, { recursive: true });
+    const when = new Date(Date.now() - ageMs);
+    fs.utimesSync(full, when, when);
+    return full;
+  };
+
+  try {
+    const kept = touch("acme-api-3-abcdef01-keep0001", 30 * day);
+    const stale = touch("acme-api-3-abcdef01-gone0001", 30 * day);
+    const young = touch("acme-api-4-12345678-fresh001", 1 * 3_600_000);
+    const refs = touch("refs/acme-api-3-abcdef01-gone0002", 30 * day);
+
+    const removed = sweepScratch({ cfg, keepRunIds: ["keep0001"], olderThanMs: 6 * 3_600_000 });
+
+    assert.ok(fs.existsSync(kept), "a deferral points at this tree");
+    assert.ok(fs.existsSync(young), "nothing has run out of the grace period yet");
+    assert.ok(!fs.existsSync(stale), `expected ${stale} to be gone`);
+    assert.ok(!fs.existsSync(refs), "the comparison copies go with the tree that made them");
+    assert.equal(removed.length, 2);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

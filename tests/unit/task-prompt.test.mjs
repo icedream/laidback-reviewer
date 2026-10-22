@@ -112,6 +112,11 @@ test("a resumed run is told it is continuing, not starting over", () => {
   assert.match(withResume, /continue/, "the point of the fork is to carry on");
   assert.match(withResume, /re-run any command/, "the scratch tree behind the old turns is gone");
 
+  // With the tree kept, saying it is gone would send the model to redo work that is sitting there.
+  const kept = buildTaskPrompt({ pr, files, checkoutDir: "/work/scratch/acme-svc-7-abcdef01", headSha: pr.head.sha, resume: { at: "2026-04-04T09:00:00.000Z", sessionFile: "/data/sessions/run-1.jsonl", scratchKept: true } });
+  assert.match(kept, /scratch tree is still in place at \/work\/scratch\/acme-svc-7-abcdef01/);
+  assert.doesNotMatch(kept, /directories are\s+gone/);
+
   const plain = buildTaskPrompt({ pr, files, checkoutDir: "/work/scratch/acme-svc-7-abcdef01", headSha: pr.head.sha });
   assert.doesNotMatch(plain, /Resumed run/);
 });

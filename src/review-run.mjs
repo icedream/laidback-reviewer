@@ -12,7 +12,7 @@ import { createReviewGuard } from "./agent/guard.mjs";
 import { createProgress } from "./agent/progress.mjs";
 import { waitForMcpTools } from "./agent/mcp-settle.mjs";
 import { promptWithModelRetry } from "./agent/model-retry.mjs";
-import { modelServerStatus, resolveModelServer } from "./agent/model-server.mjs";
+import { modelServerStatus, resolveModelServer, slotOccupancy } from "./agent/model-server.mjs";
 import { ModelBusyError } from "./agent/run-watch.mjs";
 import { buildTaskPrompt } from "./agent/prompt.mjs";
 import { rephraseBanner } from "./agent/rephrase.mjs";
@@ -88,6 +88,9 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     client.listReviews(owner, repo, prNumber),
     client.listInlineComments(owner, repo, prNumber),
   ]);
+  // What the pass starts knowing is the first thing to look at when a re-review appears to be exploring
+  // the repository from the beginning.
+  log(`already on the PR: ${reviews.length} review(s), ${comments.length} inline comment(s)`);
 
   // A head is reviewed once. What reopens it is a fresh review request, carried in by discovery, or a
   // direct invocation, which is the operator asking for another pass by hand.
@@ -152,9 +155,10 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
 
   // The model slot is shared with the interactive session, and a request queued behind another still
   // occupies it. The queue is read before anything is sent, and again by the run watchdog.
+  const modelServer = resolveModelServer({ piAgentDir, provider: cfg.agent.model.provider, modelId: cfg.agent.model.id, statusUrl: cfg.agent.model.statusUrl });
   const modelProbe = () =>
     modelServerStatus({
-      server: resolveModelServer({ piAgentDir, provider: cfg.agent.model.provider, modelId: cfg.agent.model.id, statusUrl: cfg.agent.model.statusUrl }),
+      server: modelServer,
       mode: cfg.agent.model.probe,
       probeTimeoutMs: cfg.agent.model.probeTimeoutMs,
       latencyMs: cfg.agent.model.latencyMs,
@@ -165,6 +169,10 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     throw new ModelBusyError(queue);
   }
   if (cfg.logging.level === "debug") log(`debug: model queue free (${queue.source}${queue.phase ? `, ${queue.phase}` : ""})`);
+  // Whether this pass finds a warm cache or re-prefills from zero is a server fact, and it is the one
+  // number that says whether saving a slot between deferrals would pay for itself.
+  const occupancy = await slotOccupancy(modelServer).catch(() => null);
+  if (occupancy?.promptTokens != null) log(`inference slot holds ${occupancy.promptTokens} prompt tokens (${occupancy.slotCount} slot(s), ${occupancy.processing} busy) before this pass`);
 
   // A head deferred because the inference slot was taken comes back to the session where it had already
   // read the diff. Forking that transcript is what keeps a deferral from restarting the review.
@@ -205,7 +213,6 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     log(`review ${pr.repository}#${pr.number} at ${headSha.slice(0, 8)}: agent ${agentDef.name}, ${files.length} changed files`);
     if (cfg.logging.level === "debug") {
       log(`debug: checkout ${checkoutDir}, comparison ${compareDir}, linter ${lint.mode}${lint.requestedVersion ? ` ${lint.requestedVersion}` : " (image)"}`);
-      log(`debug: context ${context.matched ? `${context.mode} from #${context.review.pr} (${context.kind})` : `none (${context.reason})`}`);
     }
     try {
       busyRetriesUsed = await promptWithModelRetry({ session, cfg, collector, prompt, log, probe: modelProbe });
@@ -214,6 +221,8 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
         // The loop defers the head, and the next pass resumes from this transcript only if the run hands
         // it over before unwinding.
         error.sessionFile = session.sessionManager?.getSessionFile?.() ?? null;
+        error.runId = task.runId ?? null;
+        error.checkoutDir = checkoutDir;
       }
       throw error;
     }

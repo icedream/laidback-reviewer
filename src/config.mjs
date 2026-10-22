@@ -143,6 +143,9 @@ export const CONFIG_SCHEMA = record({
     // Deadlines for the git calls the harness makes itself: a worktree add and a clone are different
     // pieces of work, so they get different ones.
     commandTimeoutMs: integer({ def: 60_000, min: 1_000 }),
+    // A deferred pass keeps its tree so the resumed pass can go on reading it. Nothing keeps one longer
+    // than this once no deferral points at it.
+    keepScratchMs: integer({ def: 21_600_000, min: 600_000 }),
     transferTimeoutMs: integer({ def: 300_000, min: 5_000 }),
     // A private module proxy (Athens or similar) keeps a container off the public proxies; the host has
     // to appear in tools.allowHosts as well or the guard stops the fetch.
