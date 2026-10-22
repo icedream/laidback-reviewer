@@ -13,7 +13,14 @@ const BASH_DENY = [
   { re: /\bgit\b[^|;&]*\bpush\b/, reason: "git push is not permitted: a review bot has no write access to repository contents" },
   { re: /\bgit\s+config\b.*(credential|url\.|remote\.|insteadOf)/, reason: "git config for credentials, URL rewriting, or remotes is not permitted" },
   // merge-base and merge-tree are read-only lookups; plain `git merge` is not.
-  { re: /\bgit\b[^|;&]*\b(commit|merge(?!-)|rebase|reset\s+--hard|checkout\s+-b|switch\s+-c|tag(?!\s+(?:-l\b|--list\b|-n\b)))\b/, reason: "git history changes are not permitted" },
+  { re: /\bgit\b[^|;&]*\b(commit|merge(?!-)|rebase|reset\s+--hard|checkout\s+-b|switch\s+-c)\b/, reason: "git history changes are not permitted" },
+  // Listing tags is how a review reads released versions, so only the read-only forms are let through:
+  // -l, -n, --list, --sort, --points-at, --format, --column, or no argument at all. Anything else names a
+  // tag to create, force or delete.
+  {
+    re: /\bgit\b[^|;&]*\btag\s+(?!--list\b|--column\b|--sort\b|--sort=|--points-at\b|--format=)(?!\s*-[a-z]*[ln]\b)(?!\s*(?:\||;|&|$))/,
+    reason: "creating or deleting a tag is not permitted: a review reads the tag list",
+  },
   { re: /\bgh\s+pr\s+(merge|close|review|ready|rebase|comment)\b/, reason: "gh pr writes are not permitted; reviews go through the harness" },
   { re: /\bgh\s+(repo|release|workflow|run|secret|auth(?!\s+status)\b|extension)\b/, reason: "this gh subcommand is not permitted" },
   { re: /\bgh\s+api\b[^|;&]*(--input|-X\s*(POST|PUT|PATCH|DELETE)|--method\s+(POST|PUT|PATCH|DELETE))/, reason: "gh api writes are not permitted" },

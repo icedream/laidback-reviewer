@@ -23,6 +23,8 @@ const run = (command) => decide()("bash", { command });
 const allowed = [
   ["gh auth status is a read", "cd /work/scratch/x && export GH_TOKEN=$LAIDBACK_GH_TOKEN; gh auth status 2>&1"],
   ["merge-base is a lookup", "cd /work/scratch/x && echo 'merge-base:' && git merge-base origin/main 6ccd19"],
+  ["the tag list is a read", "cd /work/scratch/x && git tag --sort=-creatordate | head -8 && echo '=== govulncheck commits on trunk ===' && git log --oneline v1.6.0..HEAD"],
+  ["a bare tag listing", "git tag"],
   ["merge-tree writes objects, not history", "cd /work/scratch/x && git merge-tree --write-tree --name-only origin/main 6ccd19"],
   ["copying manifests aside is a read", "cd /tmp/pr-review-48 && cp go.mod /work/scratch/refs/head-gomod-copy && cp go.sum /work/scratch/refs/head-gosum-copy"],
   ["fetch into the comparison root", "mkdir -p /work/scratch/refs && cd /work/scratch/refs && timeout 60 git fetch https://github.com/example/svc.git main"],
@@ -46,6 +48,9 @@ const allowed = [
 ];
 
 const blocked = [
+  ["creating a tag", "cd /work/scratch/x && git tag v1.2.3"],
+  ["annotated tag", "cd /work/scratch/x && git tag -a v1.2.3 -m note"],
+  ["deleting a tag", "cd /work/scratch/x && git tag -d v1.2.3"],
   ["git push", "git push origin main"],
   ["git commit in the tree under review", "cd /work/repos/acme/svc && git commit -am 'fix'"],
   ["git merge in the tree under review", "cd /work/repos/acme/svc && git merge origin/main"],
