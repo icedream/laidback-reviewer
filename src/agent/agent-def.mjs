@@ -64,6 +64,16 @@ export function nonInteractiveContract({ cfg, checkoutDir, prRef }) {
     "- You have no GitHub write tool. Do not attempt to post, and do not simulate posting.",
     "- Do not claim an approval or a requested change you did not submit, and do not write that a",
     "  review was posted. The harness decides whether a verdict reaches GitHub and words it.",
+    ...(cfg.banner?.mode === "authored" && (cfg.banner.prefix || cfg.banner.suffix)
+      ? [
+          "- The review body carries the disclosure itself, in your own wording, keeping every claim it makes",
+          "  and adding none:",
+          ...(cfg.banner.prefix ? [`  "${cfg.banner.prefix}"`] : []),
+          ...(cfg.banner.suffix ? [`  "${cfg.banner.suffix}"`] : []),
+          "  It normally belongs in the opening line. The harness supplies it verbatim only where your text",
+          "  does not carry it, and the author should not have to read it twice.",
+        ]
+      : []),
     "- The harness re-resolves the head SHA, derives commentable ranges from the API's own diff, and",
     "  picks the posting shape. Give paths and line numbers as you read them; do not spend turns",
     "  checking whether the line is commentable.",

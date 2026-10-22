@@ -21,6 +21,8 @@ const VERDICT_ACTION = {
   comment: () => "submit",
 };
 
+const escapeForRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 /** Case- and whitespace-insensitive, tolerant of the punctuation a sentence ends with. */
 function containsSentence(text, sentence) {
   const flatten = (value) =>
@@ -54,6 +56,49 @@ function verdictLineFor(verdict, action, cfg, proposal) {
     return `${base} Blocking ${blockers.length} items, named in the inline comments.`;
   }
   return "";
+}
+
+const STOPWORDS = new Set(["the", "and", "for", "with", "that", "this", "from", "into", "onto", "are", "was", "have", "has", "not", "you", "your", "our", "its", "any", "all", "but"]);
+
+/**
+ * How much of a configured notice the review body already carries, counted in content words. Coverage
+ * rather than phrasing: the agent may word the notice its own way, so no sentence shape is assumed.
+ */
+export function noticeCoverage(body, notice) {
+  const words = String(notice ?? "").toLowerCase().match(/[\p{L}\p{N}'_-]{3,}/gu);
+  const needed = [...new Set((words ?? []).filter((word) => !STOPWORDS.has(word)))];
+  if (!needed.length) return 1;
+  const hay = String(body ?? "").toLowerCase();
+  const found = needed.filter((word) => new RegExp("\\b" + escapeForRegex(word) + "\\b").test(hay)).length;
+  return found / needed.length;
+}
+
+/**
+ * Decide which banner slots the harness has to supply. In authored mode the review is asked to write the
+ * notice itself and only a slot it left out is filled, so a notice never appears twice.
+ *
+ * @returns {{ prefix: string, suffix: string, missing: string[], supplied: string[] }}
+ */
+export function planBanner({ cfg, proposal }) {
+  const configured = {
+    prefix: proposal.banner?.prefix ?? cfg.banner.prefix ?? "",
+    suffix: proposal.banner?.suffix ?? cfg.banner.suffix ?? "",
+  };
+  const slots = { prefix: "", suffix: "", missing: [], supplied: [] };
+  for (const slot of ["prefix", "suffix"]) {
+    const text = configured[slot];
+    if (!text) continue;
+    if (cfg.banner.mode === "appended") {
+      slots[slot] = text;
+      slots.supplied.push(slot);
+      continue;
+    }
+    if (noticeCoverage(proposal.body, text) >= 0.6) continue;
+    slots[slot] = text;
+    slots.missing.push(slot);
+    slots.supplied.push(slot);
+  }
+  return slots;
 }
 
 /** Assemble the published body. Empty slots are skipped, order is fixed. */
@@ -104,7 +149,7 @@ export function validateBannerSlot(original, rewritten, { label = "banner" } = {
  * @param files      `GET /pulls/N/files` result for the current head
  * @param headSha    the head the review is pinned to
  */
-export function composeReview({ proposal, cfg, files, headSha, owner, repo }) {
+export function composeReview({ proposal, cfg, files, headSha, owner, repo, banner = null }) {
   const decisions = [];
   const notes = [];
 
@@ -159,11 +204,14 @@ export function composeReview({ proposal, cfg, files, headSha, owner, repo }) {
   };
   for (const comment of comments) comment.body = cite(comment.body);
 
+  const slots = banner ?? planBanner({ cfg, proposal });
+  if (slots.missing?.length) notes.push(`banner: the review did not carry its ${slots.missing.join(" and ")}; the configured notice was added`);
+
   const body = assembleBody({
-    prefix: proposal.banner?.prefix ?? cfg.banner.prefix,
+    prefix: slots.prefix,
     body: cite(proposal.body ?? ""),
     verdictLine,
-    suffix: proposal.banner?.suffix ?? cfg.banner.suffix,
+    suffix: slots.suffix,
   });
   if (inlined || pinned) notes.push(`citations: ${inlined} bare permalink(s) given alt text, ${pinned} file mention(s) pinned to ${headSha.slice(0, 8)}`);
 

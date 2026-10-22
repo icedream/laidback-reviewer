@@ -44,7 +44,7 @@ export function baseConfig({ dir }) {
         requestChanges: "Verdict: I would have requested changes.",
       },
     },
-    banner: { prefix: "", suffix: "<sub>This review was performed by a local AI bot.</sub>", rephrase: false },
+    banner: { prefix: "", suffix: "<sub>This review was performed by a local AI bot.</sub>", mode: "authored", rephrasePrefix: false, rephraseSuffix: false },
     agent: {
       name: "test-reviewer",
       agentDir: path.join(dir, "agent", "agents"),

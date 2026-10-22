@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { composeReview, validateBannerSlot, assembleBody } from "../../src/proposal/policy.mjs";
+import { composeReview, planBanner, validateBannerSlot, assembleBody } from "../../src/proposal/policy.mjs";
 import { baseConfig } from "../helpers/run-env.mjs";
 
 const cfg = () => baseConfig({ dir: "/tmp" });
@@ -131,4 +131,21 @@ test("the approve wording is the operator's sentence, added once", () => {
   const delegated = composeReview({ proposal: proposal({ body: "LGTM. The manifests are tidy." }), cfg: empty, files, headSha: "abc", owner: "example", repo: "orders-svc" });
   assert.match(delegated.payload.body, /^LGTM\. The manifests are tidy\./);
   assert.doesNotMatch(delegated.payload.body, /Verdict:/);
+});
+
+test("an authored notice the review carries is not supplied twice", () => {
+  const config = cfg();
+  config.banner = { ...config.banner, mode: "authored", suffix: "", prefix: "I am on leave this week, the bot answers meanwhile." };
+
+  const carried = planBanner({ cfg: config, proposal: proposal({ body: "I am on leave this week and the bot answers questions meanwhile, so reply in the thread." }) });
+  assert.deepEqual(carried.missing, [], "the review wrote its own notice");
+
+  const dropped = planBanner({ cfg: config, proposal: proposal({ body: "The decode error is swallowed, so a broken upstream looks like an empty list." }) });
+  assert.deepEqual(dropped.missing, ["prefix"], "a slot the review left out is filled");
+
+  const stitched = cfg();
+  stitched.banner = { ...stitched.banner, mode: "appended", prefix: "I am on leave this week, the bot answers meanwhile." };
+  const always = planBanner({ cfg: stitched, proposal: proposal({ body: "I am on leave this week and the bot answers meanwhile." }) });
+  assert.ok(always.prefix, "appended mode stitches regardless");
+  assert.deepEqual(always.supplied, ["prefix", "suffix"]);
 });

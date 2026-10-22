@@ -144,7 +144,7 @@ test("banner rephrase keeps the configured text when the answer is not a rewrite
   const env = await setupReviewRun({
     overrides: {
       reviews: { dryRun: false },
-      banner: { rephrase: true, prefix: "I'm on leave this week; the bot answers meanwhile." },
+      banner: { rephrasePrefix: true, mode: "appended", prefix: "I'm on leave this week; the bot answers meanwhile." },
       gate: { channel: "none", beforePost: false },
     },
   });

@@ -25,7 +25,7 @@ import { resolveStack } from "./context/stack.mjs";
 import { HeadMovedError, submitReview } from "./github/poster.mjs";
 import { createGate, renderGateSummary } from "./gate/gate.mjs";
 import { writeArtifact } from "./proposal/artifact.mjs";
-import { composeReview } from "./proposal/policy.mjs";
+import { composeReview, planBanner } from "./proposal/policy.mjs";
 
 export function toPrView(json, { owner, repo }) {
   return {
@@ -276,16 +276,26 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   }
   if (!proposal.verdict) throw new Error(`review run produced nothing for ${pr.repository}#${pr.number}`);
 
-  if (cfg.banner.rephrase) {
+  // Authored banner: the review was told to carry the notice, so only a slot it left out is supplied here,
+  // and a supplied slot is reworded only when its own flag asks for it.
+  const bannerPlan = planBanner({ cfg, proposal });
+  const toRephrase = Object.fromEntries(
+    bannerPlan.supplied
+      .filter((slot) => (slot === "prefix" ? cfg.banner.rephrasePrefix : cfg.banner.rephraseSuffix))
+      .map((slot) => [slot, bannerPlan[slot]]),
+  );
+  let banner = bannerPlan;
+  if (Object.keys(toRephrase).length) {
     try {
-      proposal.banner = await rephraseBanner({ cfg, agentDir: piAgentDir, cwd: checkoutDir, prRef: `${pr.repository}#${pr.number}`, log });
+      const rephrased = await rephraseBanner({ cfg, agentDir: piAgentDir, cwd: checkoutDir, prRef: `${pr.repository}#${pr.number}`, slots: toRephrase, log });
+      banner = { ...bannerPlan, ...rephrased };
     } catch (error) {
       // A failed rewrite is a wording problem, not a reason to lose the review.
       notes.push(`banner rephrase failed: ${error.message}; using the configured text`);
     }
   }
 
-  const composed = composeReview({ proposal, cfg, files, headSha, owner, repo });
+  const composed = composeReview({ proposal, cfg, files, headSha, owner, repo, banner });
   if (cfg.logging.level === "debug") log(`debug: policy ${composed.verdict} -> ${composed.action} (${composed.event}), ${composed.payload.comments.length} comment(s), ${composed.payload.body.length} chars of body`);
   const reviewId = store.saveReview({ owner, repo, pr: prNumber, head_sha: headSha, composed, dryRun: cfg.reviews.dryRun, notes });
   const artifactPath = writeArtifact({

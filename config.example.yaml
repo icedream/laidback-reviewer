@@ -33,7 +33,9 @@ reviews:
 banner:
   prefix: ""
   suffix: "<sub>This review was performed by a local AI bot.</sub>"
-  rephrase: false                   # rewrite the banner for flow; the review body never goes to that call
+  mode: authored                    # authored = the review carries the notice, appended = always stitched on
+  rephrasePrefix: false             # reword a notice the harness had to supply
+  rephraseSuffix: false             # a markup footer stays exactly as configured
 
 logging:
   level: normal                    # debug prints what the harness decided: queue probe, proposal, policy mapping

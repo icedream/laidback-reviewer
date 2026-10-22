@@ -70,6 +70,14 @@ export const CONFIG_SCHEMA = record({
   banner: record({
     prefix: string({ def: "" }),
     suffix: string({ def: "" }),
+    // authored: the review is told to write the notice into its own text, and the harness fills a slot only
+    // where the notice is missing. appended: the harness stitches both slots every time.
+    mode: enumerated(["authored", "appended"], { def: "authored" }),
+    // Whether a notice the harness has to add is reworded to fit the review. Per slot, because a suffix is
+    // often a fixed footer that should not move.
+    rephrasePrefix: bool({ def: false }),
+    rephraseSuffix: bool({ def: false }),
+    // Deprecated: sets both flags. Translated below.
     rephrase: bool({ def: false }),
   }),
   logging: record({
@@ -328,7 +336,7 @@ export function loadConfig({ path = process.env.LAIDBACK_CONFIG || "config.yaml"
     }
     throw new Error(`invalid config (${path}):\n  - ${errors.join("\n  - ")}${hint}`);
   }
-  cfg._deprecations = [...applyTriggerAliases(raw, cfg), ...applyReviewAliases(raw, cfg)];
+  cfg._deprecations = [...applyTriggerAliases(raw, cfg), ...applyReviewAliases(raw, cfg), ...applyBannerAliases(raw, cfg)];
   cfg.agent.agentDir = expandHome(cfg.agent.agentDir, env);
   cfg.agent.skillsDir = expandHome(cfg.agent.skillsDir, env);
   cfg._path = path;
@@ -342,6 +350,15 @@ function applyReviewAliases(raw, cfg) {
   if (legacy === undefined) return [];
   if (raw.reviews?.respondToReRequest === undefined) cfg.reviews.respondToReRequest = true;
   return ["reviews.rereviewOnPush is gone; a moved head is a new key and is reviewed again anyway, so reviews.respondToReRequest now covers a re-request on the same head (maxReReviewsPerHead caps it)"];
+}
+
+/** `banner.rephrase` is split per slot: a footer that must not be reworded can now be left alone. */
+function applyBannerAliases(raw, cfg) {
+  const legacy = raw.banner?.rephrase;
+  if (legacy === undefined) return [];
+  if (raw.banner?.rephrasePrefix === undefined) cfg.banner.rephrasePrefix = Boolean(legacy);
+  if (raw.banner?.rephraseSuffix === undefined) cfg.banner.rephraseSuffix = Boolean(legacy);
+  return ["banner.rephrase is now banner.rephrasePrefix and banner.rephraseSuffix, so a fixed suffix can stay verbatim"]; 
 }
 
 /** `assignment:` was renamed to `trigger:`; old files still load, with a startup note. */

@@ -221,3 +221,13 @@ test("reviews.rereviewOnPush loads, and says it is gone", () => {
   assert.ok(cfg._deprecations.some((note) => /rereviewOnPush is gone/.test(note)), `notes: ${JSON.stringify(cfg._deprecations)}`);
   assert.equal(cfg.reviews.respondToReRequest, true, "the old flag does not turn the new behaviour off");
 });
+
+test("banner.rephrase splits into the two slots and says so", () => {
+  const file = writeConfig({ github: { me: "octocat" }, agent: { model: { provider: "p", id: "m" } }, banner: { rephrase: true, suffix: "<sub>bot</sub>" } });
+  const cfg = loadConfig({ path: file, env: {} });
+
+  assert.ok(cfg._deprecations.some((note) => /banner.rephrase is now/.test(note)), `notes: ${JSON.stringify(cfg._deprecations)}`);
+  assert.equal(cfg.banner.rephrasePrefix, true);
+  assert.equal(cfg.banner.rephraseSuffix, true);
+  assert.equal(cfg.banner.mode, "authored", "the notice is the review's to carry unless told otherwise");
+});
