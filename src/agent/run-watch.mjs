@@ -35,7 +35,11 @@ export function cancellationReason(previous, status) {
   // assembled and the next prompt has not gone out yet. Frozen counters say nothing in that case.
   if (status.busy === false) return "";
   const counts = typeof status.generated === "number" && typeof status.promptTokens === "number";
-  if (counts && previous && previous.generated === status.generated && previous.promptTokens === status.promptTokens) {
+  // A prefill moves neither counter: the prompt size is published up front and nothing is generated yet,
+  // so a large fork looks frozen for minutes. Only a server that had begun producing for us and stopped
+  // says the work is not ours.
+  const producing = Number(status.generated) > 0 || /thinking|writing|generat/i.test(String(status.phase ?? ""));
+  if (counts && producing && previous && previous.generated === status.generated && previous.promptTokens === status.promptTokens) {
     return `the server has produced nothing since ${status.phase || "its last state"}`;
   }
   return "";
@@ -47,7 +51,9 @@ export function cancellationReason(previous, status) {
  * done, or the timers outlive the turn.
  *
  * The check is a staleness rule rather than a one-shot deadline: a review makes many model requests, and
- * a queue can form in front of any of them, so silence is measured from the last event of any kind.
+ * a queue can form in front of any of them, so silence is measured from the last event of any kind. What
+ * counts as stalled is a queue in front of us, or generation that started and froze; a long prefill and a
+ * server between our own requests are both left alone, and the whole-run budget is the backstop there.
  */
 export function watchRun({ session, firstTokenMs = 45_000, budgetMs = 0, probe = null, log = () => {}, timer = setTimeout, untimer = clearTimeout, now = () => Date.now() }) {
   const startedAt = now();

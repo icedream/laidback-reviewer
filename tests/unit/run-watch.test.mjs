@@ -165,7 +165,7 @@ test("counters that never move are a stalled client, and that gets cancelled", a
   const session = new FakeSession();
   const clock = handClock();
   const log = [];
-  const stuck = { source: "status", busy: true, queued: 0, phase: "reading the prompt", generated: 0, promptTokens: 64254 };
+  const stuck = { source: "status", busy: true, queued: 0, phase: "thinking", generated: 812, promptTokens: 64254 };
   const watch = armed({ session, clock, probe: async () => stuck, log: (line) => log.push(line) });
 
   clock.advance(61_000);
@@ -177,6 +177,24 @@ test("counters that never move are a stalled client, and that gets cancelled", a
 
   assert.equal(session.aborted, 1);
   assert.match(watch.state.reason, /has produced nothing since/);
+});
+
+test("a large prompt gets its prefill time", async () => {
+  const session = new FakeSession();
+  const clock = handClock();
+  const log = [];
+  // A resumed pass re-prefills over a hundred thousand tokens: the prompt size is published up front and
+  // no token is generated yet, so both counters sit still for minutes while the server works on us.
+  const prefill = { source: "status", busy: true, queued: 0, phase: "reading the prompt", generated: 0, promptTokens: 151000 };
+  const watch = armed({ session, clock, probe: async () => prefill, log: (line) => log.push(line) });
+
+  for (let i = 0; i < 8; i += 1) {
+    clock.advance(61_000);
+    await clock.tick();
+  }
+
+  assert.equal(session.aborted, 0, `the prompt is still being read:\n${log.join("\n")}`);
+  assert.equal(watch.state.busy, null);
 });
 
 test("the whole-run budget cancels a review that outstays it", async () => {

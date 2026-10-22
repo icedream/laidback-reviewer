@@ -231,7 +231,10 @@ cancelled and the head deferred. A slow first token on an idle server is left al
 large prompt rather than a queue. An idle server during a quiet run is left alone too: between turns the
 harness is assembling tool results and the next prompt has not gone out, so the server sitting on the
 counters it finished with says nothing about a stalled request. Only a queue in front of us, or a server
-that reports itself busy while its counters do not move across two looks, cancels a run.
+that reports itself busy, had begun generating and then stopped across two looks, cancels a run. A server
+reading a large prompt is left alone: the prompt size is published before generation starts, so a paused
+counter during a prefill is not evidence of anything, and a request that really never arrives is caught by
+`reviews.budgetMs` instead.
 
 Every other outbound call has a deadline as well, because a stalled one holds the cycle silently:
 `github.timeoutMs`, `checkout.commandTimeoutMs` for worktree and config calls and
