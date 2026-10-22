@@ -107,6 +107,15 @@ export function createGithubClient({ baseUrl = "https://api.github.com", token, 
     listPullsForHead: (owner, repo, branch) =>
       request("GET", `${repoPath(owner, repo)}/pulls?head=${encodeURIComponent(`${owner}:${branch}`)}&state=all&per_page=5`),
     listTimeline: (owner, repo, pr) => request("GET", `${repoPath(owner, repo)}/issues/${pr}/timeline?per_page=100`),
+    /**
+     * One file from another repository at a ref. A private repository answers 404 on
+     * raw.githubusercontent.com, so a reusable workflow has to come through here.
+     */
+    getFile: async (owner, repo, filePath, ref) => {
+      const body = await request("GET", `${repoPath(owner, repo)}/contents/${filePath}${ref ? `?ref=${encodeURIComponent(ref)}` : ""}`);
+      if (Array.isArray(body) || !body?.content) return null;
+      return Buffer.from(body.content, "base64").toString("utf8");
+    },
     // One query per trigger mode. A team request would be `review-requested:@org/team`, never used.
     searchAssigned: ({ me, sinceIso }) => searchIssues(`assignee:${me}`, sinceIso),
     searchReviewRequested: ({ me, sinceIso }) => searchIssues(`review-requested:${me}`, sinceIso),

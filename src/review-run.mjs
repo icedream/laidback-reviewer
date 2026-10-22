@@ -21,6 +21,7 @@ import { REVIEW_TOOLS, createReviewSession } from "./agent/runtime.mjs";
 import { createProposalCollector, createReviewTools } from "./agent/tools.mjs";
 import { comparisonDir, configureGitAuth, configureGoModules, newRunId } from "./checkout.mjs";
 import { resolveLintTool } from "./tools/golangci-lint.mjs";
+import { stageReusableWorkflows } from "./tools/reusable-workflows.mjs";
 import { pickContext } from "./context/carried-over.mjs";
 import { resolveStack } from "./context/stack.mjs";
 import { HeadMovedError, submitReview } from "./github/poster.mjs";
@@ -158,6 +159,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   // The linter is resolved before the session starts so the prompt can say which binary to use. A
   // repository pinned to a major the image does not carry otherwise reads as a broken branch.
   const lint = await resolveLintTool({ cfg, dir: checkoutDir, log });
+  if (lint.reusable?.length) lint.reusableStaged = await stageReusableWorkflows({ client, reusable: lint.reusable, compareDir, log });
 
   // Context is resolved before the session is built, because the choice decides which session file
   // the agent starts from. The stack walk answers "which PR is this stacked on", which is the one
@@ -301,7 +303,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   for (const entry of guard.log) {
     // The command is kept so a denied call can be reviewed: a false positive in the deny list would
     // otherwise look like the model misbehaving.
-    const detail = `${entry.tool}: ${entry.reason}${entry.command ? ` (${String(entry.command).slice(0, 120)})` : ""}`;
+    const detail = `${entry.tool}: ${entry.reason}${entry.command ? ` (${String(entry.command).replace(/\s+/g, " ").slice(0, 300)})` : ""}`;
     notes.push(`blocked ${detail}`);
     log(`blocked ${detail}`);
   }

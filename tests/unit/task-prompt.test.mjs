@@ -163,3 +163,21 @@ test("a second look found in the store is named without a request event", () => 
   assert.match(prompt, /Re-review: this head was already reviewed here at 2026-04-01T00:00:00\.000Z, and this pass is the second look at it\./);
   assert.match(prompt, /say what has changed\s*since, and whether the earlier concerns still stand\./);
 });
+
+test("the prompt names what the image lacks and what the credential can read", () => {
+  const prompt = buildTaskPrompt({
+    pr,
+    files,
+    checkoutDir: "/work/x",
+    headSha: pr.head.sha,
+    compareDir: "/work/scratch/compare",
+    writableRoots: ["/work/scratch"],
+    allowHosts: ["github.com", "proxy.golang.org"],
+  });
+  assert.match(prompt, /There is no container runtime, database server, kubectl, helm,/);
+  assert.match(prompt, /do not spend a turn testing whether they exist/);
+  assert.match(prompt, /say in the review\s*that it was not executed/);
+  assert.match(prompt, /uses: <org>\/<repo>\/\.\.\.@<ref>` names the repository and the ref/);
+  assert.match(prompt, /This credential reads the organisation's private repositories/);
+  assert.match(prompt, /git tag --sort=-creatordate/);
+});

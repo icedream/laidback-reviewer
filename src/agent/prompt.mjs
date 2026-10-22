@@ -48,7 +48,10 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, r
         `how you check whether the change would come out clean. A tool this image does not carry is`,
         `yours to fetch into those roots, from: ${allowHosts.join(", ")}. Anywhere else is refused by the`,
         `tool policy and lands in the harness notes, so do not spend a turn probing it. Never write`,
-        `inside the checkout itself.`,
+        `inside the checkout itself. There is no container runtime, database server, kubectl, helm,`,
+        `terraform or ssh in this image at all: do not spend a turn testing whether they exist. Run what`,
+        `the project's own toolchain runs, and where a claim would need a live service, say in the review`,
+        `that it was not executed.`,
       ].join("\n"),
     );
   }
@@ -62,6 +65,8 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, r
         `- trunk as it is now: \`git fetch origin ${pr.base.ref} && git diff origin/${pr.base.ref}...${headSha.slice(0, 12)}\``,
         "- whether a finding predates this PR: `git log -S<pattern> --oneline origin/<base>` and `git grep <pattern> origin/<base>`",
         "- a dependency whose version changed: clone or fetch that project into the comparison root and diff its old and new tags, so the claim about the dependency is read from its source and not inferred from the version number",
+        "- a reusable workflow, shared Makefile or tool config that lives in another repository of this organisation: `uses: <org>/<repo>/...@<ref>` names the repository and the ref, so clone that repository into the comparison root and read the file. This credential reads the organisation's private repositories; if one is not readable, name the repository in the review instead of writing that nothing was reachable",
+        "- which versions exist and what a release changed: `git tag --sort=-creatordate`, `git show <tag>`, `git log <older>..<newer>`",
         "",
         `Permalinks: pin a precedent to the base SHA ${pr.base.sha}, and code this change introduces to the head SHA ${headSha}. A commit SHA stays reachable after the squash; a branch link does not.`,
       ].join("\n"),
@@ -177,6 +182,15 @@ function lintBlock(lint) {
   if (lint.conflict) {
     const pins = lint.pins.map((pin) => `${pin.version} (${pin.source})`).join(", ");
     lines.push(`The pins disagree (${pins}). Run the gate the way CI runs it, and say which version you used.`);
+  }
+  if (lint.reusableStaged?.length) {
+    lines.push("");
+    lines.push("The reusable workflows this repository calls are already read for you, because");
+    lines.push("raw.githubusercontent.com answers 404 for a private repository:");
+    for (const entry of lint.reusableStaged) {
+      lines.push(entry.path ? `  ${entry.workflow}@${entry.ref} -> ${entry.path}` : `  ${entry.workflow}@${entry.ref} -> not readable: ${entry.note}`);
+    }
+    lines.push("Read the pinned job's steps there before claiming what it does or does not run.");
   }
   lines.push("A linter that cannot start, or a version that is unavailable here, is a tooling gap: record the gate as not_run with the reason, and do not report it as a defect in this change.");
   return lines.join("\n");

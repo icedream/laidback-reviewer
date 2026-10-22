@@ -115,6 +115,17 @@ export function createFakeGithubApi({ fixture, me = "octocat", token = "test-tok
       match: (method, p) => method === "GET" && p === `${apiBase}/contents/CODEOWNERS`,
       handle: () => ({ content: Buffer.from("* @platform-team\n").toString("base64"), encoding: "base64" }),
     },
+    {
+      // Any repository's file: this is how a reusable workflow in a shared repository is read.
+      match: (method, path) => method === "GET" && /^\/repos\/[^/]+\/[^/]+\/contents\/.+/.test(path) && !path.endsWith("/CODEOWNERS"),
+      handle: (query = {}, path = "") => {
+        const filePath = decodeURIComponent(path.split("/contents/")[1].split("?")[0]);
+        const seen = query.ref ?? null;
+        (fixture.contentsCalls ??= []).push({ filePath, ref: seen });
+        const text = (fixture.fileContents ?? {})[filePath] ?? "";
+        return { name: filePath.split("/").pop(), path: filePath, content: Buffer.from(text, "utf8").toString("base64"), encoding: "base64" };
+      },
+    },
   ];
 
   const server = http.createServer((req, res) => {
@@ -165,7 +176,7 @@ export function createFakeGithubApi({ fixture, me = "octocat", token = "test-tok
         return;
       }
       res.writeHead(200, OK);
-      res.end(JSON.stringify(route.handle(entry.query)));
+      res.end(JSON.stringify(route.handle(entry.query, path)));
     });
   });
 
