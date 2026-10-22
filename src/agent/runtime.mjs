@@ -39,6 +39,16 @@ function skillPromptBlock({ agentDir, cwd, skillsDir }) {
 }
 
 /**
+ * Where the MCP extension appends its log. In the container the agent dir is a read-only bind, so the
+ * log goes beside the checkout paths the run already writes to, which are writable by construction.
+ */
+export function mcpLogFile(cfg, agentDir) {
+  if (cfg.logging?.mcpLogFile) return cfg.logging.mcpLogFile;
+  if (cfg.checkout?.gitConfig) return path.join(path.dirname(cfg.checkout.gitConfig), "mcp.log");
+  return path.join(agentDir, "mcp.log");
+}
+
+/**
  * @param agentDef parsed agents/<name>.md; its body replaces the default prompt unless promptMode is
  *                 "append"
  * @param contract runtime contract appended to whatever prompt is used
@@ -59,7 +69,7 @@ export async function createReviewSession({ cfg, agentDir, cwd, agentDef, contra
   process.env.PI_CODING_AGENT_DIR = path.resolve(agentDir);
   // An SDK session does not load MCP on its own; the servers in the agent dir's mcp.json need this
   // factory. Their read-only enforcement lives in the guard, whatever the credential allows.
-  const factories = cfg.tools.mcp.length ? [...extensionFactories, createMcpExtension({})] : [...extensionFactories];
+  const factories = cfg.tools.mcp.length ? [...extensionFactories, createMcpExtension({ logPath: mcpLogFile(cfg, agentDir) })] : [...extensionFactories];
   const services = await createAgentSessionServices({
     cwd,
     agentDir,
