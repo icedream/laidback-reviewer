@@ -373,6 +373,5 @@ spacing and parking, busy-model retries, per-repository linter versions, contain
 fixture integration tests and the live smoke run.
 
 Not yet: the Atlassian credential strategy inside the container (mount an authenticated
-`mcp-auth.json`, or mint a bearer token), a Telegram gate adapter, one live Slack gate run, building
-the image to confirm the pinned toolchain installs, and a live run that shows a forked session making
+`mcp-auth.json`, or mint a bearer token), and a live run that shows a forked session making
 the second review better rather than just cheaper.
