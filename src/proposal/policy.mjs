@@ -36,6 +36,17 @@ function containsSentence(text, sentence) {
   return new RegExp(`(^|\\s)${escaped}([.,;:!?]|\\s|$)`).test(flatten(text));
 }
 
+/** The configured sentence, word for word, somewhere in the body. */
+function containsVerbatim(body, notice) {
+  const flatten = (value) =>
+    String(value ?? "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+  const needle = flatten(notice);
+  return Boolean(needle) && flatten(body).includes(needle);
+}
+
 function verdictLineFor(verdict, action, cfg, proposal) {
   if (action !== "hint") return "";
   if (verdict === "approve") {
@@ -97,7 +108,7 @@ export function planBanner({ cfg, proposal }) {
     prefix: proposal.banner?.prefix ?? cfg.banner.prefix ?? "",
     suffix: proposal.banner?.suffix ?? cfg.banner.suffix ?? "",
   };
-  const slots = { prefix: "", suffix: "", missing: [], supplied: [] };
+  const slots = { prefix: "", suffix: "", missing: [], supplied: [], verbatim: [] };
   for (const slot of ["prefix", "suffix"]) {
     const text = configured[slot];
     if (!text) continue;
@@ -106,9 +117,14 @@ export function planBanner({ cfg, proposal }) {
       slots.supplied.push(slot);
       continue;
     }
-    if (noticeCoverage(noticeRegion(proposal.body, slot), text) >= 0.6) continue;
+    const carried = noticeCoverage(noticeRegion(proposal.body, slot), text) >= 0.6;
+    // Pasting the configured sentence is not carrying it in the review's own words. It still goes to the
+    // rewording pass, but the review is not counted as having left the disclosure out.
+    const verbatim = carried && containsVerbatim(proposal.body, text);
+    if (carried && !verbatim) continue;
     slots[slot] = text;
-    slots.missing.push(slot);
+    if (!carried) slots.missing.push(slot);
+    if (verbatim) slots.verbatim.push(slot);
     slots.supplied.push(slot);
   }
   return slots;

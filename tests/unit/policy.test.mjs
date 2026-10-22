@@ -204,3 +204,18 @@ test("the harness note names the notice it had to add", () => {
   assert.match(composed.payload.body, /Reply in the thread if you would like a human to look again\.$/, "and it lands at the end");
   assert.doesNotMatch(composed.payload.body, /I am on leave.*\n\nI am on leave/, "the carried intro is not doubled");
 });
+
+test("a notice pasted word for word is reworded, not counted as missing", () => {
+  const cfg = { banner: { mode: "authored", prefix: "I'm on leave this week; the bot answers meanwhile.", suffix: "" } };
+  const proposal = { verdict: "comment", body: "I'm on leave this week; the bot answers meanwhile.\n\nFindings\n1. a" };
+  const plan = planBanner({ cfg, proposal });
+
+  assert.deepEqual(plan.missing, [], "the review did carry a disclosure");
+  assert.deepEqual(plan.verbatim, ["prefix"], "but in the configured sentence, not its own words");
+  assert.deepEqual(plan.supplied, ["prefix"], "so the slot goes to the rewording pass");
+
+  const reworded = { verdict: "comment", body: "I'm on leave this week, so the bot is answering meanwhile.\n\nFindings\n1. a" };
+  const own = planBanner({ cfg, proposal: reworded });
+  assert.deepEqual(own.supplied, [], "in its own words, nothing is added or rewritten");
+  assert.deepEqual(own.verbatim, []);
+});

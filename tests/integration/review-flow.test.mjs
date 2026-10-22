@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { setupReviewRun } from "../helpers/run-env.mjs";
+import { reviewScript } from "../fakes/model.mjs";
 
 const SIX_COMMENTS = 6;
 
@@ -156,6 +157,33 @@ test("banner rephrase keeps the configured text when the answer is not a rewrite
     assert.ok(review.body.startsWith("I'm on leave this week; the bot answers meanwhile."));
     assert.match(env.log(), /banner rephrase rejected/);
     assert.equal(result.composed.payload.comments.length, SIX_COMMENTS);
+  } finally {
+    env.close();
+  }
+});
+
+test("a review that pastes the configured notice sends it to the rewording pass", async () => {
+  const notice = "I'm on leave this week; the bot answers meanwhile.";
+  const env = await setupReviewRun({
+    overrides: {
+      reviews: { dryRun: false },
+      banner: { mode: "authored", prefix: notice, rephrasePrefix: true },
+      gate: { channel: "none", beforePost: false },
+    },
+    turns: (fixture, dir) =>
+      reviewScript({ fixture, scratchDir: dir }).map((message) => ({
+        ...message,
+        tool_calls: message.tool_calls?.map((call) =>
+          call.name === "review_propose_body" ? { ...call, args: { ...call.args, body: `${notice}\n\n${call.args.body}` } } : call,
+        ),
+      })),
+  });
+  try {
+    await env.run();
+    // The scripted model has no answer for the rewording request, so the configured sentence survives.
+    // What matters is that the harness asked instead of shipping the pasted sentence untouched.
+    assert.match(env.log(), /banner: the review pasted the prefix notice, rewording it through the model/);
+    assert.match(env.log(), /banner rephrase/);
   } finally {
     env.close();
   }

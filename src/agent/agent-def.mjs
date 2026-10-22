@@ -66,8 +66,9 @@ export function nonInteractiveContract({ cfg, checkoutDir, prRef }) {
     "  review was posted. The harness decides whether a verdict reaches GitHub and words it.",
     ...(cfg.banner?.mode === "authored" && (cfg.banner.prefix || cfg.banner.suffix)
       ? [
-          "- The review body carries the disclosure itself, in your own wording, keeping every claim it",
-          "  makes and adding none. Each notice has its own place, and each is checked only there:",
+          "- The review body carries the disclosure itself, in your own words: restate it, never paste the",
+          "  sentence quoted below. Keep every claim it makes and add none. Each notice has its own place,",
+          "  and each is checked only there:",
           ...(cfg.banner.prefix ? [`  opening line, before your findings: "${cfg.banner.prefix}"`] : []),
           ...(cfg.banner.suffix ? [`  closing line, after your findings: "${cfg.banner.suffix}"`] : []),
           ...(cfg.banner.prefix && cfg.banner.suffix
@@ -75,7 +76,8 @@ export function nonInteractiveContract({ cfg, checkoutDir, prRef }) {
                "  one does not cover the other."]
             : []),
           "  The harness fills a notice verbatim only where your body does not carry it in that place, so",
-          "  the author does not have to read it twice.",
+          "  the author does not have to read it twice. A sentence pasted word for word costs a separate",
+          "  model call to reword before the review posts.",
         ]
       : []),
     "- The harness re-resolves the head SHA, derives commentable ranges from the API's own diff, and",

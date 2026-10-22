@@ -331,9 +331,13 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   );
   let banner = bannerPlan;
   if (Object.keys(toRephrase).length) {
+    if (bannerPlan.verbatim.length) log(`banner: the review pasted the ${bannerPlan.verbatim.join(", ")} notice, rewording it through the model`);
     try {
       const rephrased = await rephraseBanner({ cfg, agentDir: piAgentDir, cwd: checkoutDir, prRef: `${pr.repository}#${pr.number}`, slots: toRephrase, log });
       banner = { ...bannerPlan, ...rephrased };
+      for (const slot of bannerPlan.verbatim) {
+        if (banner[slot] !== bannerPlan[slot]) notes.push(`banner: the ${slot} notice was reworded from the sentence the review had pasted`);
+      }
     } catch (error) {
       // A failed rewrite is a wording problem, not a reason to lose the review.
       notes.push(`banner rephrase failed: ${error.message}; using the configured text`);

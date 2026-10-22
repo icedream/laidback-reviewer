@@ -118,7 +118,9 @@ In authored mode each notice is judged only in its own place: the intro against 
 body, the outro against the closing block. A review that opens with the outro wording is still asked for an
 outro, since one notice does not answer for the other. A body of a single block has no position to judge,
 so it is read as a whole. A notice the review left out is added verbatim, and the record says which one
-was missing.
+was missing. A notice copied out of the config word for word is judged separately: the review is not blamed
+for omitting it, but with rephrasing on that sentence goes to the model for rewording, since pasting the
+configured line is not the review speaking in its own words.
 
 `rephrase` was one flag for both lines; it is now `rephrasePrefix` and `rephraseSuffix`, and the old key
 is still translated with a note at startup. With rephrasing on, the rewrite is checked against the
@@ -226,7 +228,10 @@ attempt, so a shared slot never parks a review that was never run; the log says 
 `failed`. A prompt already in flight gets a deadline too: nothing on the wire after
 `agent.model.firstTokenMs` while the server shows another prompt in flight means the request is
 cancelled and the head deferred. A slow first token on an idle server is left alone, because that is a
-large prompt rather than a queue.
+large prompt rather than a queue. An idle server during a quiet run is left alone too: between turns the
+harness is assembling tool results and the next prompt has not gone out, so the server sitting on the
+counters it finished with says nothing about a stalled request. Only a queue in front of us, or a server
+that reports itself busy while its counters do not move across two looks, cancels a run.
 
 Every other outbound call has a deadline as well, because a stalled one holds the cycle silently:
 `github.timeoutMs`, `checkout.commandTimeoutMs` for worktree and config calls and
