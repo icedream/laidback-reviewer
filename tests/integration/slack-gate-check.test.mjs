@@ -19,6 +19,18 @@ import { createSlackGate } from "../../src/gate/slack.mjs";
 import { openStore } from "../../src/proposal/store.mjs";
 import { baseConfig } from "../helpers/run-env.mjs";
 
+/**
+ * Child env kept minimal on purpose. An ambient LAIDBACK_SLACK_CHANNEL, token or model setting from the
+ * host shell or from docker-compose would decide which channel and which credential the CLI under test
+ * believes it is using, and the suite would pass or fail depending on where it was started.
+ */
+const AMBIENT_KEEP = new Set(["PATH", "HOME", "NODE_OPTIONS", "TZ", "LANG"]);
+
+function childEnv(overrides) {
+  const base = Object.fromEntries(Object.entries(process.env).filter(([key]) => AMBIENT_KEEP.has(key)));
+  return { ...base, ...overrides };
+}
+
 const ROOT = path.join(import.meta.dirname, "..", "..");
 
 function tempEnv(slackOverrides = {}, { dryRun = true } = {}) {
@@ -101,14 +113,13 @@ function runCheck({ config, db, allowUsers, timeout = "4" }) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ["src/cli/gate-check.mjs", "--timeout", timeout], {
       cwd: ROOT,
-      env: {
-        ...process.env,
+      env: childEnv({
         LAIDBACK_CONFIG: config,
         LAIDBACK_GATE_CHECK_DB: db,
         LAIDBACK_SLACK_USERS: allowUsers,
         GATECHECK_XOXC: "xoxc-test",
         GATECHECK_XOXD: "xoxd-test",
-      },
+      }),
     });
 
     let stdout = "";
@@ -256,7 +267,7 @@ test("a missing token says which variable and what to copy into it", () => {
   const { dir, config, db } = tempEnv();
   const run = spawnSync(process.execPath, ["src/cli/gate-check.mjs"], {
     cwd: ROOT,
-    env: { ...process.env, LAIDBACK_CONFIG: config, LAIDBACK_GATE_CHECK_DB: db, GATECHECK_XOXC: "", GATECHECK_XOXD: "", LAIDBACK_SLACK_USERS: "U_ME" },
+    env: childEnv({ LAIDBACK_CONFIG: config, LAIDBACK_GATE_CHECK_DB: db, GATECHECK_XOXC: "", GATECHECK_XOXD: "", LAIDBACK_SLACK_USERS: "U_ME" }),
     encoding: "utf8",
     timeout: 20_000,
   });
@@ -274,7 +285,7 @@ test("every inline comment is posted in the thread, and none of them decides the
   const slack = fakeSlack({ textReply: false });
   const apiBaseUrl = await slack.start();
   const { dir, config } = tempEnv({ apiBaseUrl }, { dryRun: false });
-  const env = { ...process.env, GATECHECK_XOXC: "xoxc-test", GATECHECK_XOXD: "xoxd-test", LAIDBACK_SLACK_USERS: "U_ME" };
+  const env = childEnv({ GATECHECK_XOXC: "xoxc-test", GATECHECK_XOXD: "xoxd-test", LAIDBACK_SLACK_USERS: "U_ME" });
   const cfg = loadConfig({ path: config, env });
   const store = openStore(path.join(dir, "comments.db"));
   try {
@@ -353,7 +364,7 @@ test("gate.mjs sync reads a Slack decision into the store, which is what post-ap
   const apiBaseUrl = await slack.start();
   const { dir, config } = tempEnv({ apiBaseUrl }, { dryRun: false });
   const db = path.join(dir, "sync.db");
-  const env = { ...process.env, LAIDBACK_CONFIG: config, LAIDBACK_STATE_DB: db, LAIDBACK_SLACK_USERS: "U_ME", GATECHECK_XOXC: "xoxc-test", GATECHECK_XOXD: "xoxd-test" };
+  const env = childEnv({ LAIDBACK_CONFIG: config, LAIDBACK_STATE_DB: db, LAIDBACK_SLACK_USERS: "U_ME", GATECHECK_XOXC: "xoxc-test", GATECHECK_XOXD: "xoxd-test" });
   const cfg = loadConfig({ path: config, env });
   const store = openStore(db);
   try {
