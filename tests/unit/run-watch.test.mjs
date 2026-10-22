@@ -223,3 +223,21 @@ test("a cancelled run carries the reason as a typed error", async () => {
 test("the budget surfaces as its own error", () => {
   assert.equal(new ModelBudgetError(60_000).name, "ModelBudgetError");
 });
+
+test("an idle server during our own silence is not mistaken for a stalled request", async () => {
+  const session = new FakeSession();
+  const clock = handClock();
+  const log = [];
+  // Between turns: the tool results are being assembled here, so nothing is on the wire and the server
+  // sits at the same counters it finished the last request with.
+  const still = { source: "status", busy: false, queued: 0, phase: "tool call complete", generated: 612, promptTokens: 108182 };
+  const watch = armed({ session, clock, probe: async () => still, log: (line) => log.push(line) });
+
+  for (let i = 0; i < 6; i += 1) {
+    clock.advance(61_000);
+    await clock.tick();
+  }
+
+  assert.equal(session.aborted, 0, `the run is ours to finish:\n${log.join("\n")}`);
+  assert.equal(watch.state.busy, null);
+});

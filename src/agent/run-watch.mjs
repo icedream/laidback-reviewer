@@ -31,6 +31,9 @@ const ACTIVITY = new Set(["message_start", "message_update", "message_end", "too
 export function cancellationReason(previous, status) {
   if (!status) return "";
   if (Number(status.queued ?? 0) > 0) return `${status.queued} request(s) are queued in front of us`;
+  // An idle server with a silent run is our own side between requests: the tool results are being
+  // assembled and the next prompt has not gone out yet. Frozen counters say nothing in that case.
+  if (status.busy === false) return "";
   const counts = typeof status.generated === "number" && typeof status.promptTokens === "number";
   if (counts && previous && previous.generated === status.generated && previous.promptTokens === status.promptTokens) {
     return `the server has produced nothing since ${status.phase || "its last state"}`;
