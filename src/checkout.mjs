@@ -7,6 +7,7 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -46,8 +47,22 @@ export function repoDir(cfg, owner, repo) {
   return path.resolve(cfg.checkout.root, owner, repo);
 }
 
-export function worktreeDir(cfg, owner, repo, pr, headSha) {
-  return path.resolve(cfg.checkout.scratch, `${owner}-${repo}-${pr}-${headSha.slice(0, 8)}`);
+/** Identifies one review run, so its scratch area cannot be confused with another run's. */
+export const newRunId = () => randomUUID().slice(0, 8);
+
+const runLabel = (owner, repo, pr, headSha, runId) => `${owner}-${repo}-${pr}-${headSha.slice(0, 8)}${runId ? `-${runId}` : ""}`;
+
+export function worktreeDir(cfg, owner, repo, pr, headSha, runId = "") {
+  return path.resolve(cfg.checkout.scratch, runLabel(owner, repo, pr, headSha, runId));
+}
+
+/**
+ * Where a run keeps the versions it fetched for comparison: trunk as it is now, a dependency's other
+ * tags. Per run, because a session carries on with the paths it saw, and another run's files in the
+ * same place would be read as if they belonged to this one.
+ */
+export function comparisonDir(cfg, owner, repo, pr, headSha, runId = "") {
+  return path.join(path.resolve(cfg.checkout.compareDir), runLabel(owner, repo, pr, headSha, runId));
 }
 
 /**
@@ -56,11 +71,14 @@ export function worktreeDir(cfg, owner, repo, pr, headSha) {
  * `existing` points at a tree someone else prepared: the integration test, or a checkout you keep
  * warm by hand. `clone` maintains a cached clone and adds one detached worktree per review.
  */
-export function prepareCheckout({ cfg, owner, repo, pr, headRef, headSha, log = () => {} }) {
+export function prepareCheckout({ cfg, owner, repo, pr, headRef, headSha, runId = newRunId(), log = () => {} }) {
+  const compare = comparisonDir(cfg, owner, repo, pr, headSha, runId);
+  fs.mkdirSync(compare, { recursive: true });
+
   if (cfg.checkout.mode === "existing") {
     const dir = path.resolve(cfg.checkout.existingDir || repoDir(cfg, owner, repo));
     if (!fs.existsSync(path.join(dir, ".git"))) throw new Error(`checkout.mode=existing but ${dir} is not a git repository`);
-    return { dir, headSha: git(["rev-parse", "HEAD"], { cwd: dir, cfg }), cachedClone: null };
+    return { dir, headSha: git(["rev-parse", "HEAD"], { cwd: dir, cfg }), cachedClone: null, runId, compareDir: compare };
   }
 
   const tokenEnv = cfg.github.tokenEnv;
@@ -77,33 +95,26 @@ export function prepareCheckout({ cfg, owner, repo, pr, headRef, headSha, log = 
   // Now that the clone exists, the repository-local settings apply to anything run from inside it.
   applyLocalGitAuth({ cfg, dir: cached });
 
-  const dir = worktreeDir(cfg, owner, repo, pr, headSha);
+  const dir = worktreeDir(cfg, owner, repo, pr, headSha, runId);
   if (fs.existsSync(dir)) {
     log(`reusing worktree ${dir}`);
-    return { dir, headSha, cachedClone: cached };
+    return { dir, headSha, cachedClone: cached, runId, compareDir: compare };
   }
   git(["worktree", "add", "--detach", dir, headSha], { cwd: cached, cfg });
-  return { dir, headSha, cachedClone: cached };
+  return { dir, headSha, cachedClone: cached, runId, compareDir: compare };
 }
 
-export function releaseWorktree({ cfg, dir, cachedClone, log = () => {} }) {
-  if (cfg.checkout.mode === "existing" || !cachedClone) return;
-  try {
-    git(["worktree", "remove", "--force", dir], { cwd: cachedClone, cfg });
-  } catch (error) {
-    log(`worktree remove failed for ${dir}: ${error.message}`);
+export function releaseWorktree({ cfg, dir, cachedClone, compareDir, log = () => {} }) {
+  if (cachedClone) {
+    try {
+      git(["worktree", "remove", "--force", dir], { cwd: cachedClone, cfg });
+    } catch (error) {
+      log(`worktree remove failed for ${dir}: ${error.message}`);
+    }
   }
-}
-
-/**
- * Ref comparison. A review often needs a side of the diff that is not in the PR tree: trunk as it is
- * now, a release tag, or the repository of a dependency whose version changed. Those go in the
- * comparison root, fetched with the same contents-read-only credential.
- */
-export function prepareComparisonDir({ cfg, log = () => {} }) {
-  const dir = path.resolve(cfg.checkout.compareDir);
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
+  // Fetched comparisons are the biggest thing a run leaves behind, and nothing after this run may read
+  // it as if it were its own.
+  if (compareDir) fs.rmSync(compareDir, { recursive: true, force: true });
 }
 
 /**

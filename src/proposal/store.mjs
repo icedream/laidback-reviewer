@@ -111,7 +111,7 @@ export function openStore(path) {
       // present already
     }
   }
-  for (const column of ["session_file TEXT", "branch TEXT", "stack_key TEXT"]) {
+  for (const column of ["session_file TEXT", "branch TEXT", "stack_key TEXT", "checkout_dir TEXT"]) {
     try {
       db.exec(`ALTER TABLE reviews ADD COLUMN ${column}`);
     } catch {
@@ -138,7 +138,7 @@ export function createStore(db) {
        WHERE id = @id`,
     ),
     setArtifact: db.prepare(`UPDATE reviews SET artifact_path = @path, updated_at = @now WHERE id = @id`),
-    setSession: db.prepare(`UPDATE reviews SET session_file = @session_file, branch = @branch, stack_key = @stack_key, updated_at = @now WHERE id = @id`),
+    setSession: db.prepare(`UPDATE reviews SET session_file = @session_file, branch = @branch, stack_key = @stack_key, checkout_dir = @checkout_dir, updated_at = @now WHERE id = @id`),
     recentReviews: db.prepare(
       `SELECT * FROM reviews
        WHERE created_at >= @since
@@ -278,8 +278,8 @@ export function createStore(db) {
     setArtifact({ id, path }) {
       statements.setArtifact.run({ id, path, now: now() });
     },
-    setSession({ id, sessionFile, branch, stackKey }) {
-      statements.setSession.run({ id, session_file: sessionFile ?? null, branch: branch ?? null, stack_key: stackKey ?? null, now: now() });
+    setSession({ id, sessionFile, branch, stackKey, checkoutDir }) {
+      statements.setSession.run({ id, session_file: sessionFile ?? null, branch: branch ?? null, stack_key: stackKey ?? null, checkout_dir: checkoutDir ?? null, now: now() });
     },
     /** Reviews inside the context window, newest first. Omit owner/repo for every repository. */
     recentReviews: ({ owner = null, repo = null, sinceIso }) =>

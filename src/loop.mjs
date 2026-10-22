@@ -80,7 +80,7 @@ export async function cycle({
         store,
         client,
         slack,
-        task: { owner: candidate.owner, repo: candidate.repo, pr: candidate.pr, checkoutDir: checkout.dir },
+        task: { owner: candidate.owner, repo: candidate.repo, pr: candidate.pr, checkoutDir: checkout.dir, compareDir: checkout.compareDir, runId: checkout.runId },
         piAgentDir,
         artifactDir,
         log,

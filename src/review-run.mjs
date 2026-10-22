@@ -5,6 +5,7 @@
  * a proposal, and only the last step can write, and only if the policy and the gate allow it.
  */
 
+import fs from "node:fs";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { loadAgentDef, nonInteractiveContract } from "./agent/agent-def.mjs";
 import { createReviewGuard } from "./agent/guard.mjs";
@@ -16,7 +17,7 @@ import { buildTaskPrompt } from "./agent/prompt.mjs";
 import { rephraseBanner } from "./agent/rephrase.mjs";
 import { REVIEW_TOOLS, createReviewSession } from "./agent/runtime.mjs";
 import { createProposalCollector, createReviewTools } from "./agent/tools.mjs";
-import { configureGitAuth, configureGoModules, prepareComparisonDir } from "./checkout.mjs";
+import { comparisonDir, configureGitAuth, configureGoModules, newRunId } from "./checkout.mjs";
 import { resolveLintTool } from "./tools/golangci-lint.mjs";
 import { pickContext } from "./context/carried-over.mjs";
 import { resolveStack } from "./context/stack.mjs";
@@ -81,7 +82,11 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
 
   // Comparison fetches (trunk, tags, a dependency's own repository) run under the comparison root
   // with the same read-only credential, so a version claim is read from source rather than inferred.
-  const compareDir = prepareComparisonDir({ cfg, log });
+  // One run, one scratch area. A later session may carry this run's history, and it must not be able to
+  // read another run's fetched comparisons as though they were still its own.
+  const runId = task.runId ?? newRunId();
+  const compareDir = task.compareDir ?? comparisonDir(cfg, owner, repo, prNumber, headSha, runId);
+  fs.mkdirSync(compareDir, { recursive: true });
   if (cfg.checkout.mode === "clone") {
     configureGitAuth({ cfg, dir: checkoutDir, log });
     configureGoModules({ cfg, dir: checkoutDir, log });
@@ -91,7 +96,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   // One list for both halves: the guard allows these paths and the prompt names them, so the agent is
   // not discovering the write boundary by hitting it. The toolchain install dir is included because a
   // repository that pins a version the image does not carry has to be able to fetch it itself.
-  const writableRoots = [cfg.checkout.scratch, cfg.toolchain.installDir, "/tmp"];
+  const writableRoots = [cfg.checkout.scratch, cfg.toolchain.installDir, compareDir, "/tmp"];
   const guard = createReviewGuard({
     allowHosts: cfg.tools.allowHosts,
     bashEnabled: cfg.tools.bash,
@@ -231,6 +236,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     id: reviewId,
     sessionFile: session.sessionManager?.getSessionFile() ?? null,
     branch: pr.head.ref,
+    checkoutDir,
     stackKey: stack.key,
   });
   store.markSeen({ owner, repo, pr: prNumber, head_sha: headSha });

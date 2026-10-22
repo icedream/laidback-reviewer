@@ -81,10 +81,14 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, c
   }
 
   if (context) {
+    const earlier = context.review?.checkout_dir || "an earlier scratch tree";
     sections.push(
       [
         `Carried-over context: ${context.description}`,
         context.instructions,
+        `That session's paths (${earlier}) were one run's scratch area and no longer exist. Read only`,
+        `from this checkout and this run's scratch roots, and re-run any command whose output the earlier`,
+        `session is quoting rather than trusting the file it names.`,
       ]
         .filter(Boolean)
         .join("\n"),

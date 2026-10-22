@@ -50,3 +50,16 @@ test("the ticket keys and the commentable line numbers are both in front of the 
   assert.match(prompt, /Ticket keys referenced: ORD-142/);
   assert.match(prompt, /internal\/server\/server\.go \[modified, \+4\/-1\] commentable RIGHT lines/);
 });
+
+test("a carried-over session is told that its old paths are gone", () => {
+  const prompt = buildTaskPrompt({
+    pr,
+    files,
+    checkoutDir: "/work/scratch/acme-svc-9-ffee0011-3c1d2e4f",
+    headSha: "abcdef0123456789",
+    context: { description: "stacked on #8", instructions: "review only what changed", review: { checkout_dir: "/work/scratch/acme-svc-8-11aa22bb-9z8y7x6w" } },
+  });
+
+  assert.match(prompt, /Carried-over context: stacked on #8/);
+  assert.match(prompt, /\/work\/scratch\/acme-svc-8-11aa22bb-9z8y7x6w\) were one run's scratch area and no longer exist/);
+});

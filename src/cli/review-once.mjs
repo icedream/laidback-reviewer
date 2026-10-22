@@ -93,7 +93,7 @@ async function main() {
       store,
       client,
       slack: slackGateFromConfig({ cfg, store, log: (line) => console.error(line) }),
-      task: { owner, repo, pr, checkoutDir: requestedDir || checkout.dir },
+      task: { owner, repo, pr, checkoutDir: requestedDir || checkout.dir, compareDir: checkout?.compareDir, runId: checkout?.runId },
       piAgentDir: process.env.PI_CODING_AGENT_DIR ?? ".pi/agent",
       artifactDir: args.artifacts ?? process.env.LAIDBACK_ARTIFACT_DIR ?? "data/reviews",
     });
