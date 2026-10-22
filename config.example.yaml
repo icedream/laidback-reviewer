@@ -65,7 +65,8 @@ agent:
 context:
   enabled: true
   maxAgeDays: 30
-  minScore: 35                      # percent, changed-file overlap fallback only
+  minScore: 35                        # percent, changed-file overlap only
+  crossPrFileOverlap: false           # shared files alone never carry context across PRs
   allowCrossRepo: false             # other repositories, by ticket key only, always digest
   sessionDir: ""                    # empty = nothing persists, so no context carries over
   mode: auto                        # auto | fork | digest
