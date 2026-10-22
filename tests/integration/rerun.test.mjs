@@ -113,3 +113,37 @@ ${env.log()}`);
     env.close();
   }
 });
+
+test("the command line can ask for another pass on a gate whose message has no control for it", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const env = await setupReviewRun({ overrides: { reviews: { dryRun: false }, gate: { channel: "cli", beforeReview: false, beforePost: true } } });
+  try {
+    await env.cycle();
+    const [row] = reviewed(env.store);
+    const gateId = env.store.db.prepare("SELECT id FROM gates WHERE pr = @pr ORDER BY created_at DESC LIMIT 1").get({ pr: row.pr }).id;
+
+    const out = execFileSync(
+      process.execPath,
+      ["src/cli/gate.mjs", "rerun", gateId],
+      {
+        encoding: "utf8",
+        env: { ...process.env, LAIDBACK_CONFIG: `${env.dir}/config.yaml`, LAIDBACK_STATE_DB: `${env.dir}/state.db`, USER: "operator" },
+      },
+    );
+    assert.match(out, /another pass over example\/orders-svc#143 at /);
+    assert.deepEqual(
+      env.store.pendingReruns().map((entry) => [entry.pr, entry.requested_by]),
+      [[143, "cli:operator"]],
+    );
+    const gate = env.store.getGate(gateId);
+    assert.equal(gate.state, "rejected", "the proposal it replaces stops waiting for approval");
+    assert.equal(gate.reason, "superseded by another pass");
+    assert.deepEqual(env.store.approvedUnpostedReviews(), [], "and it is not posted behind the new pass");
+
+    env.model.resetTurns();
+    await env.cycle();
+    assert.match(env.log(), /rerun .*: another pass requested by cli:operator/);
+  } finally {
+    env.close();
+  }
+});

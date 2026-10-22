@@ -414,7 +414,8 @@ itself improved. It rejects the proposal waiting on that gate as superseded, so 
 pass, and the next cycle runs a fresh pass over that head. That pass starts from the transcript of the one it
 replaces rather than from an empty context, and its findings are presented to the model as a draft to
 improve on. `reviews.maxReReviewsPerHead` caps how often, and a head that moved in the meantime drops the
-request rather than reviewing a different commit.
+request rather than reviewing a different commit. The same thing from a shell, which also reaches a
+message posted before the control existed: `node src/cli/gate.mjs rerun <gate id>`.
 
 Taps from an id outside `LAIDBACK_TELEGRAM_USERS` are answered with `not on the allow list` and leave the
 gate pending. Each callback query is acknowledged as it is read, so a restart does not re-decide a gate.

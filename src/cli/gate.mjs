@@ -14,12 +14,13 @@ import fs from "node:fs";
 import { loadConfig } from "../config.mjs";
 import { gateTransportFromConfig } from "../gate/transport.mjs";
 import { openStore } from "../proposal/store.mjs";
+import { requestRerun } from "../gate/gate.mjs";
 
 const STATE_DB = process.env.LAIDBACK_STATE_DB || "data/state.db";
 
 function usage(message) {
   if (message) console.error(message);
-  console.error("usage: node src/cli/gate.mjs list | sync | show <id> | approve <id> | reject <id> [reason] | hold <id>");
+  console.error("usage: node src/cli/gate.mjs list | sync | show <id> | approve <id> | reject <id> [reason] | hold <id> | rerun <id>");
   process.exit(message ? 1 : 0);
 }
 
@@ -68,6 +69,14 @@ async function main() {
       console.log(`review ${decided.review_id} is approved; post it with: node src/cli/post-approved.mjs ${decided.review_id}`);
     }
     return;
+  }
+
+  if (command === "rerun") {
+    // Works on a gate whose message has no rerun control, which is every gate posted before it existed.
+    const asked = requestRerun({ store, gate, by: process.env.USER ? `cli:${process.env.USER}` : "cli", log: console.log });
+    if (!asked) usage(`gate ${id} records no repository and head, so there is nothing to re-run`);
+    console.log(`another pass over ${gate.owner}/${gate.repo}#${gate.pr} at ${gate.head_sha.slice(0, 8)} is queued for the next cycle`);
+    process.exit(0);
   }
 
   if (command === "hold") {
