@@ -9,6 +9,8 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { loadAgentDef, nonInteractiveContract } from "./agent/agent-def.mjs";
 import { createReviewGuard } from "./agent/guard.mjs";
 import { promptWithModelRetry } from "./agent/model-retry.mjs";
+import { modelServerStatus, resolveModelServer } from "./agent/model-server.mjs";
+import { ModelBusyError } from "./agent/run-watch.mjs";
 import { buildTaskPrompt } from "./agent/prompt.mjs";
 import { rephraseBanner } from "./agent/rephrase.mjs";
 import { REVIEW_TOOLS, createReviewSession } from "./agent/runtime.mjs";
@@ -123,6 +125,21 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     context: context.matched ? { description: context.description, instructions: context.instructions } : null,
   });
 
+  // The model slot is shared with the interactive session, and a request queued behind another still
+  // occupies it. The queue is read before anything is sent, and again by the run watchdog.
+  const modelProbe = () =>
+    modelServerStatus({
+      server: resolveModelServer({ piAgentDir, provider: cfg.agent.model.provider, modelId: cfg.agent.model.id, statusUrl: cfg.agent.model.statusUrl }),
+      mode: cfg.agent.model.probe,
+      probeTimeoutMs: cfg.agent.model.probeTimeoutMs,
+      latencyMs: cfg.agent.model.latencyMs,
+    });
+  const queue = await modelProbe();
+  if (queue.busy) {
+    log(`model server busy (${queue.phase || queue.source}): ${pr.repository}#${pr.number} is not worth sending yet`);
+    throw new ModelBusyError(queue);
+  }
+
   const sessionManager =
     context.matched && context.mode === "fork" && cfg.context.sessionDir
       ? SessionManager.forkFrom(context.review.session_file, checkoutDir, cfg.context.sessionDir)
@@ -143,7 +160,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   });
 
   log(`review ${pr.repository}#${pr.number} at ${headSha.slice(0, 8)}: agent ${agentDef.name}, ${files.length} changed files`);
-  const busyRetriesUsed = await promptWithModelRetry({ session, cfg, collector, prompt, log });
+  const busyRetriesUsed = await promptWithModelRetry({ session, cfg, collector, prompt, log, probe: modelProbe });
   session.dispose();
 
   const notes = [];

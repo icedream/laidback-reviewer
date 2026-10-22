@@ -63,6 +63,7 @@ async function main() {
   const client = createGithubClient({
     baseUrl: process.env.LAIDBACK_GH_API || "https://api.github.com",
     token: secret(cfg, cfg.github.tokenEnv, { required: true }),
+    timeoutMs: cfg.github.timeoutMs,
   });
 
   // `--dir` is used as given. Without it the run builds the same cached clone and detached worktree the
@@ -74,15 +75,31 @@ async function main() {
     checkout = prepareCheckout({ cfg, owner, repo, pr, headRef: pull.head?.ref, headSha: pull.head?.sha, log: console.error });
   }
 
-  const result = await runReview({
-    cfg,
-    store,
-    client,
-    slack: slackGateFromConfig({ cfg, store, log: (line) => console.error(line) }),
-    task: { owner, repo, pr, checkoutDir: requestedDir || checkout.dir },
-    piAgentDir: process.env.PI_CODING_AGENT_DIR ?? ".pi/agent",
-    artifactDir: args.artifacts ?? process.env.LAIDBACK_ARTIFACT_DIR ?? "data/reviews",
-  });
+  let result = null;
+  let busy = null;
+  try {
+    result = await runReview({
+      cfg,
+      store,
+      client,
+      slack: slackGateFromConfig({ cfg, store, log: (line) => console.error(line) }),
+      task: { owner, repo, pr, checkoutDir: requestedDir || checkout.dir },
+      piAgentDir: process.env.PI_CODING_AGENT_DIR ?? ".pi/agent",
+      artifactDir: args.artifacts ?? process.env.LAIDBACK_ARTIFACT_DIR ?? "data/reviews",
+    });
+  } catch (error) {
+    if (error?.name !== "ModelBusyError") throw error;
+    busy = error;
+  } finally {
+    store.close();
+    if (checkout) releaseWorktree({ ...checkout, cfg, log: console.error });
+  }
+
+  if (busy) {
+    console.log(`model server busy: ${busy.message}. Nothing was sent, and the request was not left queued.`);
+    process.exitCode = 3;
+    return;
+  }
 
   console.log(
     JSON.stringify(
@@ -103,8 +120,6 @@ async function main() {
       2,
     ),
   );
-  store.close();
-  if (checkout) releaseWorktree({ ...checkout, cfg, log: console.error });
 }
 
 // Imported by tests for the flag handling; only a direct run performs a review.

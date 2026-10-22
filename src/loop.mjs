@@ -54,6 +54,15 @@ export async function cycle({
       continue;
     }
 
+    // A head set aside because the model was occupied is not a failure, so it is not counted against
+    // the parking threshold; it just waits for the slot.
+    const deferral = store.deferralFor(key);
+    if (deferral && Date.parse(deferral.until_at) > Date.now()) {
+      log(`  candidate ${candidate.htmlUrl}: deferred until ${deferral.until_at.slice(11, 16)} (${deferral.reason})`);
+      continue;
+    }
+    if (deferral) store.clearDeferral(key);
+
     log(`  candidate ${candidate.htmlUrl}: ${candidate.reason}${plan.attempts ? ` (${plan.reason})` : ""}`);
     let checkout = null;
     try {
@@ -81,6 +90,14 @@ export async function cycle({
       else if (result.posted) log(`    posted ${result.posted.state}: ${result.posted.html_url}`);
       else log(`    composed and stored, nothing posted (dry run ${result.dryRun}, gate ${result.gate?.state})`);
     } catch (error) {
+      if (error?.name === "ModelBusyError") {
+        // Nothing about the PR went wrong, so the head is put back for later instead of burning an
+        // attempt: a shared inference slot must not park a review that was never run.
+        const until = new Date(Date.now() + cfg.agent.model.deferMs).toISOString();
+        store.deferHead({ ...key, until_at: until, reason: error.message });
+        log(`    deferred: ${error.message}, retry after ${until.slice(11, 16)}`);
+        continue;
+      }
       // Recorded against this head so the next cycle waits rather than re-running a busy server
       // or a branch that does not build.
       recordFailure({ cfg, store, key, error, log });

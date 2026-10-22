@@ -1,0 +1,65 @@
+/**
+ * The poll loop when the inference server is occupied.
+ *
+ * A home server runs one prompt at a time and the interactive session usually holds the slot. Sending a
+ * review anyway puts it in a queue that occupies a connection for minutes, and the PR then looks like a
+ * failing review. The head is set aside instead, with no attempt counted against it.
+ */
+
+import assert from "node:assert/strict";
+import test from "node:test";
+import { setupReviewRun } from "../helpers/run-env.mjs";
+
+const busyOverrides = { agent: { model: { probe: "status", deferMs: 90_000, busyRetries: 0 } } };
+
+const key = (env) => ({ owner: "example", repo: "orders-svc", pr: env.fixture.pr, head_sha: env.fixture.head.sha });
+
+test("a busy server defers the head and never reaches the model", async () => {
+  // The interactive session holds the slot for the first two cycles and frees it for the third.
+  let free = false;
+  const env = await setupReviewRun({
+    turns: [],
+    modelStatus: () => (free ? { busy: false, queued: 0, phase: "idle" } : { busy: true, queued: 0, phase: "reading the prompt", prompt_tokens: 64362 }),
+    overrides: busyOverrides,
+  });
+  try {
+    await env.cycle();
+
+    const deferral = env.store.deferralFor(key(env));
+    assert.ok(deferral, "the head is set aside");
+    assert.ok(Date.parse(deferral.until_at) > Date.now(), "with a retry time, not a park");
+    assert.match(deferral.reason, /model server busy \(reading the prompt\)/);
+    assert.equal(env.store.getFailure(key(env)), undefined, "a busy server is not a failed review");
+    assert.equal(env.model.requests().length, 0, "nothing was sent to the model");
+    assert.match(env.log(), /model server busy \(reading the prompt\)/);
+    assert.match(env.log(), /deferred: model server busy/);
+
+    // The next cycle must not re-probe-and-send either, and it must not consume an attempt.
+    await env.cycle();
+    assert.match(env.log(), /deferred until/);
+    assert.equal(env.model.requests().length, 0);
+
+    // Once the window passes and the slot is free, the head is tried and the deferral is cleared.
+    free = true;
+    env.store.deferHead({ ...key(env), until_at: new Date(Date.now() - 1000).toISOString(), reason: "expired in the test" });
+    await env.cycle();
+    assert.equal(env.store.deferralFor(key(env)), undefined);
+    assert.equal(env.model.requests().length, 1, "the review runs once the slot looks free");
+    assert.ok(env.store.getFailure(key(env)), "an empty review after that is a normal failure");
+  } finally {
+    await env.close();
+  }
+});
+
+test("a server with nothing to say about its queue does not block the review", async () => {
+  const env = await setupReviewRun({ overrides: { agent: { model: { probe: "status", busyRetries: 0 } } } });
+  try {
+    // The fake model has no status route configured, so the probe finds no answer and stands down.
+    await env.cycle();
+
+    assert.equal(env.store.deferralFor(key(env)), undefined);
+    assert.ok(env.store.reviewFor(key(env)), "the review went ahead");
+  } finally {
+    await env.close();
+  }
+});

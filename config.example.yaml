@@ -8,6 +8,7 @@ github:
   repos: []                         # owner/name patterns, * for one segment: [example-corp/orders-*]
   deny: []                          # wins over orgs and repos; keeps a repo out even if a list names it
   pollIntervalMs: 120000
+  timeoutMs: 30000                  # a GitHub call that never answers is cut off, not waited on
   searchAgeHours: 24
 
 trigger:
@@ -19,6 +20,7 @@ reviews:
   rereviewOnPush: false             # review again when the head moves after the first review
   maxPerCycle: 2
   maxComments: 25
+  budgetMs: 1200000                 # wall clock for one review; over it the session is cancelled and the head records a failure
   dryRun: true                      # nothing reaches GitHub; the payload is printed and stored
   approve: hint                     # submit | hint | drop
   requestChanges: hint              # submit | hint | drop
@@ -43,6 +45,13 @@ agent:
     maxConcurrency: 1               # one local inference server, one prompt at a time
     lockFile: ""                    # e.g. /data/inference.lock
     busyBackoffMs: 30000
+    busyRetries: 2                  # a failed or empty turn re-prompts the same session before it counts as a failure
+    probe: auto                     # read the queue before sending: auto | status (Strata) | slots (llama.cpp) | latency | none
+    statusUrl: ""                   # only when the status endpoint is not <host>/status next to /v1
+    probeTimeoutMs: 3000
+    latencyMs: 2500                 # no status endpoint: a one-token request must answer this fast
+    firstTokenMs: 45000             # nothing answered this long while the server works elsewhere: cancel
+    deferMs: 90000                  # how long to leave the PR alone after cancelling; costs no attempt
 
 context:
   enabled: true
@@ -64,12 +73,16 @@ checkout:
   goProxy: ""                       # e.g. https://athens.internal:3000, also needed in tools.allowHosts
   goSumDb: ""                       # "off" when a mirror does not serve checksums
   goFlags: ""
+  commandTimeoutMs: 60000            # worktree add, rev-parse, config
+  transferTimeoutMs: 300000          # clone and fetch
 
 toolchain:
   golangciLint: auto                # auto = install what the repo pins | off = image version | v2.3.1 = that tag
   installDir: work/tools            # writable; the image's own copy stays untouched
   preferRepoVersion: true           # false = always use the image's linter
   downloadBaseUrl: https://github.com   # change for a mirror or an air-gapped network
+  downloadTimeoutMs: 120000         # per hop; a stalled mirror otherwise holds the run
+  execTimeoutMs: 120000             # unpacking the release, checking its version
 
 tools:
   bash: true                        # tests, lint, read-only gh subcommands
@@ -98,6 +111,8 @@ gate:
     tokenEnv: SLACK_MCP_XOXC_TOKEN
     cookieEnv: SLACK_MCP_XOXD_TOKEN
     webhookUrlEnv: LAIDBACK_SLACK_WEBHOOK
+    timeoutMs: 15000
+    maxCommentReplies: 25           # one thread reply per inline comment; 0 keeps them in the summary only
     reactions:                          # seeded when a different identity will click; Slack names only
       approve: [white_check_mark]
       reject: [x]

@@ -71,6 +71,17 @@ CREATE TABLE IF NOT EXISTS failures (
   PRIMARY KEY (owner, repo, pr, head_sha)
 );
 
+CREATE TABLE IF NOT EXISTS deferrals (
+  owner TEXT NOT NULL,
+  repo TEXT NOT NULL,
+  pr INTEGER NOT NULL,
+  head_sha TEXT NOT NULL,
+  until_at TEXT NOT NULL,
+  reason TEXT,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (owner, repo, pr, head_sha)
+);
+
 CREATE TABLE IF NOT EXISTS seen (
   owner TEXT NOT NULL,
   repo TEXT NOT NULL,
@@ -153,6 +164,14 @@ export function createStore(db) {
        DO UPDATE SET attempts = @attempts, last_error = @last_error, next_try_at = @next_try_at, parked = @parked, updated_at = @now`,
     ),
     clearFailure: db.prepare(`DELETE FROM failures WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha`),
+    upsertDeferral: db.prepare(
+      `INSERT INTO deferrals (owner, repo, pr, head_sha, until_at, reason, updated_at)
+       VALUES (@owner, @repo, @pr, @head_sha, @until_at, @reason, @now)
+       ON CONFLICT (owner, repo, pr, head_sha) DO UPDATE SET until_at = @until_at, reason = @reason, updated_at = @now`,
+    ),
+    deferralFor: db.prepare(`SELECT * FROM deferrals WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha`),
+    activeDeferrals: db.prepare(`SELECT * FROM deferrals WHERE until_at > @now ORDER BY until_at`),
+    clearDeferral: db.prepare(`DELETE FROM deferrals WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha`),
     listFailures: db.prepare(`SELECT * FROM failures ORDER BY updated_at DESC LIMIT 100`),
     getReview: db.prepare(`SELECT * FROM reviews WHERE id = @id`),
     reviewFor: db.prepare(`SELECT * FROM reviews WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha`),
@@ -186,6 +205,13 @@ export function createStore(db) {
     getFailure: (key) => statements.getFailure.get(key),
     recordFailure: (row) => statements.upsertFailure.run({ ...row, now: row.now ?? now() }),
     clearFailure: (key) => statements.clearFailure.run(key),
+    /** A head set aside because the model server was occupied, not because the review failed. */
+    deferHead({ owner, repo, pr, head_sha, until_at, reason }) {
+      statements.upsertDeferral.run({ owner, repo, pr, head_sha, until_at, reason: reason ?? null, now: now() });
+    },
+    deferralFor: (key) => statements.deferralFor.get(key),
+    activeDeferrals: () => statements.activeDeferrals.all({ now: now() }),
+    clearDeferral: (key) => statements.clearDeferral.run(key),
     listFailures: () => statements.listFailures.all(),
 
     /** Persist one composed review plus its comments. Returns the review row id. */

@@ -5,6 +5,8 @@
  * has already read the diff is asked to continue instead of the run starting over.
  */
 
+import { ModelBudgetError, ModelBusyError, watchRun } from "./run-watch.mjs";
+
 const TRANSIENT = /(overload|busy|rate.?limit|\b429\b|\b50[0-4]\b|timed out|timeout|ECONNREFUSED|ECONNRESET|ECONNABORTED|ETIMEDOUT|socket hang up|connection (error|closed|reset)|server_error|engineovl)/i;
 
 export function isTransientModelError(error) {
@@ -21,8 +23,9 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * that swallows a busy response ends the turn quietly, so an empty collector is the only sign. A turn
  * with findings but no review_submit is not retried: review-run composes from what was recorded.
  */
-export async function promptWithModelRetry({ session, cfg, collector, prompt, log = () => {}, sleepImpl = sleep }) {
-  const { busyRetries, busyBackoffMs } = cfg.agent.model;
+export async function promptWithModelRetry({ session, cfg, collector, prompt, log = () => {}, sleepImpl = sleep, probe = null }) {
+  const { busyRetries, busyBackoffMs, firstTokenMs } = cfg.agent.model;
+  const budgetMs = cfg.reviews?.budgetMs ?? 0;
 
   for (let attempt = 0; ; attempt += 1) {
     const text =
@@ -30,13 +33,22 @@ export async function promptWithModelRetry({ session, cfg, collector, prompt, lo
         ? prompt
         : "Continue the review: the previous attempt failed with a model error. Pick up where you left off and finish with review_submit.";
 
+    const watch = watchRun({ session, firstTokenMs, budgetMs, probe, log });
     let thrown = null;
     try {
       await session.prompt(text);
     } catch (error) {
+      watch.release();
+      // A cancelled run aborts inside the provider, and that error is not the interesting part: the
+      // reason the watchdog pulled the plug is.
+      if (watch.state.busy) throw new ModelBusyError(watch.state.busy);
+      if (watch.state.overBudget) throw new ModelBudgetError(budgetMs);
       if (!isTransientModelError(error)) throw error;
       thrown = error;
     }
+    watch.release();
+    if (watch.state.busy) throw new ModelBusyError(watch.state.busy);
+    if (watch.state.overBudget) throw new ModelBudgetError(budgetMs);
 
     if (collector && !collector.isEmpty()) return attempt;
     if (attempt >= busyRetries) {

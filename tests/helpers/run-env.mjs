@@ -50,7 +50,7 @@ export function baseConfig({ dir }) {
       agentDir: path.join(dir, "agent", "agents"),
       skillsDir: "",
       systemPromptAddendum: "",
-      model: { provider: FAKE_MODEL_PROVIDER, id: FAKE_MODEL_ID, thinking: "off", maxConcurrency: 1, busyBackoffMs: 0, busyRetries: 0 },
+      model: { provider: FAKE_MODEL_PROVIDER, id: FAKE_MODEL_ID, thinking: "off", maxConcurrency: 1, busyBackoffMs: 0, busyRetries: 0, probe: "none" },
     },
     context: { enabled: false, maxAgeDays: 30, minScore: 35, allowCrossRepo: false, sessionDir: "", mode: "auto", maxForkTokens: 48000 },
     checkout: { mode: "existing", root: path.join(dir, "repos"), scratch: path.join(dir, "scratch"), compareDir: path.join(dir, "scratch", "refs"), gitConfig: path.join(dir, "gitconfig"), existingDir: "", goPrivate: [] },
@@ -74,7 +74,7 @@ export function baseConfig({ dir }) {
  * Bring up one review run. `overrides` is a partial config tree, so each test reads as a policy
  * difference rather than a new environment.
  */
-export async function setupReviewRun({ overrides = {}, scriptOptions = {}, turns = null, env = {}, jira = false, context = null, modelFails = [], prState = null, githubOptions = {} } = {}) {
+export async function setupReviewRun({ overrides = {}, scriptOptions = {}, turns = null, env = {}, jira = false, context = null, modelFails = [], modelStatus = null, prState = null, githubOptions = {} } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "laidback-test-"));
   fs.mkdirSync(path.join(dir, "scratch"), { recursive: true });
   let jiraCallsPath = null;
@@ -86,7 +86,7 @@ export async function setupReviewRun({ overrides = {}, scriptOptions = {}, turns
   const { baseUrl: githubBaseUrl } = await github.start();
 
   const script = typeof turns === "function" ? turns(fixture, fixture.dir) : turns;
-  const model = createScriptedModel({ turns: script ?? reviewScript({ fixture, scratchDir: fixture.dir, ...scriptOptions }), failAttempts: modelFails });
+  const model = createScriptedModel({ turns: script ?? reviewScript({ fixture, scratchDir: fixture.dir, ...scriptOptions }), failAttempts: modelFails, status: modelStatus });
   const { baseUrl: modelBaseUrl } = await model.start();
 
   const agentDir = path.join(dir, "agent");

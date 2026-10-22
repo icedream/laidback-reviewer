@@ -24,6 +24,7 @@ export const CONFIG_SCHEMA = record({
     repos: list(string(), { def: [] }),
     deny: list(string(), { def: [] }),
     pollIntervalMs: integer({ def: 120_000, min: 15_000 }),
+    timeoutMs: integer({ def: 30_000, min: 1_000 }),
     searchAgeHours: integer({ def: 24, min: 1 }),
   }),
   trigger: record({
@@ -48,6 +49,9 @@ export const CONFIG_SCHEMA = record({
       approve: string({ def: "Verdict: I would have approved this." }),
       requestChanges: string({ def: "Verdict: I would have requested changes." }),
     }),
+    // One review gets a wall clock. Over it the session is cancelled and the head records a failure,
+    // so the next attempt arrives under the normal spacing instead of the run sitting there.
+    budgetMs: integer({ def: 1_200_000, min: 60_000 }),
     // Failures are recorded per (pr, head): the next attempt waits, and a head that keeps failing is
     // parked.
     maxAttemptsPerHead: integer({ def: 4, min: 1 }),
@@ -73,6 +77,18 @@ export const CONFIG_SCHEMA = record({
       busyBackoffMs: integer({ def: 30_000, min: 0 }),
       // Transient model errors re-prompt the same session before the run counts as a failure.
       busyRetries: integer({ def: 2, min: 0, max: 6 }),
+      // One inference slot is shared with the interactive session, and a request queued behind another
+      // still holds the connection. "auto" asks the server what it is doing before sending anything:
+      // /status on Strata, /slots?model= on llama.cpp, and a one-token request that has to answer
+      // quickly on anything else.
+      probe: enumerated(["auto", "status", "slots", "latency", "none"], { def: "auto" }),
+      statusUrl: string({ def: "" }),
+      probeTimeoutMs: integer({ def: 3000, min: 250 }),
+      latencyMs: integer({ def: 2500, min: 250 }),
+      // A prompt that has produced nothing this long while the server is busy elsewhere is cancelled
+      // rather than left in the queue.
+      firstTokenMs: integer({ def: 45_000, min: 2_000 }),
+      deferMs: integer({ def: 90_000, min: 5_000 }),
     }),
   }),
   toolchain: record({
@@ -83,6 +99,9 @@ export const CONFIG_SCHEMA = record({
     installDir: string({ def: "work/tools" }),
     // Change for a mirror, an air-gapped network, or a test server.
     downloadBaseUrl: string({ def: "https://github.com" }),
+    // A release download and an unpack both need deadlines: a stalled mirror otherwise holds the run.
+    downloadTimeoutMs: integer({ def: 120_000, min: 1_000 }),
+    execTimeoutMs: integer({ def: 120_000, min: 1_000 }),
         preferRepoVersion: bool({ def: true }),
   }),
   context: record({
@@ -102,6 +121,10 @@ export const CONFIG_SCHEMA = record({
     gitConfig: string({ def: ".pi/gitconfig" }),
     existingDir: string({ def: "" }),
     goPrivate: list(string(), { def: [] }),
+    // Deadlines for the git calls the harness makes itself: a worktree add and a clone are different
+    // pieces of work, so they get different ones.
+    commandTimeoutMs: integer({ def: 60_000, min: 1_000 }),
+    transferTimeoutMs: integer({ def: 300_000, min: 5_000 }),
     // A private module proxy (Athens or similar) keeps a container off the public proxies; the host has
     // to appear in tools.allowHosts as well or the guard stops the fetch.
     goProxy: string({ def: "" }),
@@ -132,6 +155,7 @@ export const CONFIG_SCHEMA = record({
       webhookUrlEnv: string({ def: "LAIDBACK_SLACK_WEBHOOK" }),
       // One thread reply per inline comment, so the decider reads the finding rather than a line number.
       maxCommentReplies: integer({ def: 25, min: 0 }),
+      timeoutMs: integer({ def: 15_000, min: 1_000 }),
       // Emoji on the gate message itself. The bot seeds these on its own post when a different
       // identity will click them. Names must exist in Slack's own set: Slack has no `pause_button`.
       reactions: record({

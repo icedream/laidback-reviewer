@@ -15,12 +15,27 @@ function chunk(body) {
   return `data: ${JSON.stringify(body)}\n\n`;
 }
 
-export function createScriptedModel({ turns, model = "scripted-review", failAttempts = [] }) {
+export function createScriptedModel({ turns, model = "scripted-review", failAttempts = [], status = null }) {
   const requests = [];
   const failing = new Set(failAttempts);
   let turn = 0;
 
   const server = http.createServer((req, res) => {
+    // The queue probe reads a status document rather than a completion, so a busy server can be
+    // simulated without spending a script turn or parsing an empty body.
+    if (status && req.method === "GET" && (/^\/status/.test(req.url) || /^\/slots/.test(req.url))) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      // A function lets one test flip the server from occupied to free between cycles.
+      res.end(JSON.stringify(typeof status === "function" ? status() : status));
+      return;
+    }
+    // A completion endpoint answers POST; anything else is a probe, and a probe deserves a 404 rather
+    // than a parse failure on an empty body.
+    if (req.method === "GET") {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: { message: "not found", type: "not_found_error" } }));
+      return;
+    }
     const chunks = [];
     req.on("data", (chunkData) => chunks.push(chunkData));
     req.on("end", () => {

@@ -197,6 +197,35 @@ timeout, 429, 5xx) are retried on the *same session* up to `agent.model.busyRetr
 the session has already read the diff and run the gates, so it is asked to continue rather than start
 over. A hard error (context length exceeded, bad tool call) is raised immediately.
 
+## Sharing one inference slot
+
+A home server runs one prompt at a time, and a request queued behind another still occupies a
+connection. Strata keeps reading a prompt body from a client that has stopped sending one, which is how
+a paused container left the server `busy: true, generated: 0` for half an hour. So the bot reads the
+queue before it adds to it:
+
+| `agent.model.probe` | what it asks |
+| --- | --- |
+| `status` | Strata's `GET /status`: `{"busy":true,"queued":0,"phase":"reading the prompt"}` |
+| `slots` | llama.cpp's `GET /slots?model=<id>`: busy if any slot has `is_processing` |
+| `latency` | no status endpoint: one token must come back within `latencyMs` |
+| `auto` | tries them in that order and keeps whichever answered |
+| `none` | never asks |
+
+Busy means the PR is put aside for `agent.model.deferMs` and the next cycle looks again. That costs no
+attempt, so a shared slot never parks a review that was never run; the log says `deferred` rather than
+`failed`. A prompt already in flight gets a deadline too: nothing on the wire after
+`agent.model.firstTokenMs` while the server shows another prompt in flight means the request is
+cancelled and the head deferred. A slow first token on an idle server is left alone, because that is a
+large prompt rather than a queue.
+
+Every other outbound call has a deadline as well, because a stalled one holds the cycle silently:
+`github.timeoutMs`, `checkout.commandTimeoutMs` for worktree and config calls and
+`checkout.transferTimeoutMs` for clone and fetch (with `GIT_TERMINAL_PROMPT=0`, so git fails instead of
+asking for credentials it will never get), `toolchain.downloadTimeoutMs` per hop plus
+`toolchain.execTimeoutMs` for unpacking, and `gate.slack.timeoutMs`. One review also has a wall clock,
+`reviews.budgetMs`; over it the session is cancelled and the head records a failure like any other.
+
 ## Linter versions
 
 The image ships `golangci-lint` v2, pinned by `GOLANGCI_LINT_VERSION` at build time. That is a floor:
