@@ -145,7 +145,14 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     checkoutDir,
     headSha,
     prior: { reviews, comments, discussion },
-    reRequest: task.reRequest ?? null,
+    reRequest:
+      task.reRequest ??
+      (() => {
+        // Discovery's flag comes from the poll cursor, which an operator can clear. The reviews table knows
+        // whether this bot already wrote a review of this head, and that is what the note is about.
+        const row = store.reviewFor({ owner, repo, pr: prNumber, head_sha: headSha });
+        return row ? { handledAt: row.created_at } : null;
+      })(),
     compareDir,
     writableRoots,
     allowHosts: cfg.tools.allowHosts,

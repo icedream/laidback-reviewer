@@ -102,8 +102,8 @@ test("a re-review is named, so the model reports what changed instead of repeati
   });
 
   assert.match(prompt, /Review history of this PR/);
-  assert.match(prompt, /Re-review: the review was requested again at 2026-04-03T11:24:00Z[\s\S]*earlier pass of this[\s\S]*same head at 2026-04-01T00:00:00.000Z/);
-  assert.match(prompt, /say what has changed since, and whether the earlier concerns still stand/);
+  assert.match(prompt, /Re-review: the review was requested again at 2026-04-03T11:24:00Z, after an earlier pass over\s*this same head at 2026-04-01T00:00:00\.000Z\./);
+  assert.match(prompt, /say what has changed\s*since, and whether the earlier concerns still stand/);
 });
 
 test("a resumed run is told it is continuing, not starting over", () => {
@@ -156,4 +156,10 @@ test("the history names who said what, and how to treat it", () => {
   assert.match(prompt, /comment by author: Rebasing once the other bump lands\./);
   assert.match(prompt, /A finding already on this PR is not a new one/);
   assert.match(prompt, /Something the author answered stays answered/);
+});
+
+test("a second look found in the store is named without a request event", () => {
+  const prompt = buildTaskPrompt({ pr, files, checkoutDir: "/work/x", headSha: pr.head.sha, reRequest: { handledAt: "2026-04-01T00:00:00.000Z" } });
+  assert.match(prompt, /Re-review: this head was already reviewed here at 2026-04-01T00:00:00\.000Z, and this pass is the second look at it\./);
+  assert.match(prompt, /say what has changed\s*since, and whether the earlier concerns still stand\./);
 });

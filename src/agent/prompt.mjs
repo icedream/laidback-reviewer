@@ -104,10 +104,15 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, r
   if (reRequest) {
     sections.push(
       [
-        `Re-review: the review was requested again at ${reRequest.askedAt}, after an earlier pass of this`,
-        `same head at ${reRequest.handledAt}. The entries above include that pass, so repeating them adds`,
-        `nothing: say what has changed since, and whether the earlier concerns still stand.`,
-      ].join("\n"),
+        reRequest.askedAt
+          ? `Re-review: the review was requested again at ${reRequest.askedAt}, after an earlier pass over`
+          : `Re-review: this head was already reviewed here at ${reRequest.handledAt}, and this pass is the second look at it.`,
+        reRequest.askedAt ? `this same head at ${reRequest.handledAt}.` : null,
+        "The entries above include that pass, so repeating them adds nothing: say what has changed",
+        "since, and whether the earlier concerns still stand.",
+      ]
+        .filter(Boolean)
+        .join("\n"),
     );
   }
 
