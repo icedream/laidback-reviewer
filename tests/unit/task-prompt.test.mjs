@@ -63,3 +63,30 @@ test("a carried-over session is told that its old paths are gone", () => {
   assert.match(prompt, /Carried-over context: stacked on #8/);
   assert.match(prompt, /\/work\/scratch\/acme-svc-8-11aa22bb-9z8y7x6w\) were one run's scratch area and no longer exist/);
 });
+
+test("what is already on the PR is named, so the review does not repeat it", () => {
+  const prompt = buildTaskPrompt({
+    pr,
+    files,
+    checkoutDir: "/work/x",
+    headSha: "abcdef0123456789",
+    prior: {
+      reviews: [{ id: 1, user: { login: "maintainer" }, state: "CHANGES_REQUESTED" }],
+      comments: [
+        { id: 2, path: "internal/server/server.go", line: 88, body: "This swallows the context cancellation error.\n\nRetry with a timeout." },
+        { id: 3, path: "go.mod", line: 12, body: "x".repeat(400) },
+      ],
+    },
+  });
+
+  assert.match(prompt, /Already on this PR \(do not repeat these findings\):/);
+  assert.match(prompt, /review 1 by maintainer: CHANGES_REQUESTED/);
+  assert.match(prompt, /inline on internal\/server\/server\.go:88: This swallows the context cancellation error\. Retry with a timeout\./);
+  assert.ok(prompt.includes("x".repeat(160)) && !prompt.includes("x".repeat(161)), "a long body is clipped, not pasted whole");
+});
+
+test("a PR nobody has looked at says so", () => {
+  const prompt = buildTaskPrompt({ pr, files, checkoutDir: "/work/x", headSha: "abcdef0123456789", prior: { reviews: [], comments: [] } });
+
+  assert.match(prompt, /No review and no inline comment exists on this PR yet\./);
+});
