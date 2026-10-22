@@ -16,9 +16,7 @@ Cannot: push a commit, merge, reopen a draft, deploy. Three layers hold that:
    is not `POST /repos/<owner>/<repo>/pulls/<n>/reviews`, before the request leaves the process. The
    credential is expected to be a fine-grained PAT with `Pull requests: read and write`,
    `Contents: read-only`, `Metadata/Issues/Checks: read-only`. A repository the token cannot read
-   produces a recorded failure against that head and the loop carries on. There is no startup scope
-   probe: proving a credential cannot write means attempting a write, which is the thing the check
-   would be doing.
+   produces a recorded failure against that head and the loop carries on.
 2. **No posting tool.** The model has `review_propose_comment`, `review_propose_body`,
    `review_propose_verdict`, `review_record_gate`, `review_submit`. Only `src/github/poster.mjs`
    writes to GitHub, after the policy and the gate.
