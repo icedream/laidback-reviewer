@@ -65,7 +65,7 @@ test("an unreachable or refusing daemon is not_run, never a silent pass", async 
   const log = [];
 
   const down = createLabClient({ cfg, env: {}, fetchImpl: async () => { throw new Error("connect ECONNREFUSED"); }, log: (line) => log.push(line) });
-  const unreachable = await down.call("build", { dockerfile: ".build/scripts/codegen.Dockerfile" });
+  const unreachable = await down.call("build", { dockerfile: ".ci/scripts/builder.Dockerfile" });
   assert.equal(unreachable.ok, false);
   assert.match(unreachable.error, /lab daemon unreachable/);
 
@@ -90,12 +90,12 @@ test("an unknown action is refused before anything is sent", async () => {
 test("the gate row says what ran, what it cost, and what came out", () => {
   const row = labGateRow(
     "build",
-    { dockerfile: ".build/scripts/codegen.Dockerfile", label: "does the pin build" },
-    { ok: true, exit: 1, stdout: "unable to find image golang:1.26.6", stderr: "", image: "codegen:review", jobId: "j-12", durationMs: 91_000, egress: "registries" },
+    { dockerfile: ".ci/scripts/builder.Dockerfile", label: "does the pin build" },
+    { ok: true, exit: 1, stdout: "unable to find image golang:1.26.6", stderr: "", image: "builder:review", jobId: "j-12", durationMs: 91_000, egress: "registries" },
   );
-  assert.equal(row.gate, "lab build: .build/scripts/codegen.Dockerfile (does the pin build)");
+  assert.equal(row.gate, "lab build: .ci/scripts/builder.Dockerfile (does the pin build)");
   assert.equal(row.result, "fail");
-  assert.match(row.evidence, /job j-12 at 91000ms, exit 1, egress registries, image codegen:review/);
+  assert.match(row.evidence, /job j-12 at 91000ms, exit 1, egress registries, image builder:review/);
   assert.match(row.evidence, /unable to find image/);
 
   const passed = labGateRow("run", { image: "postgres:16-alpine" }, { ok: true, exit: 0, stdout: "CREATE TABLE", image: "postgres:16-alpine", jobId: "j-13", durationMs: 4000, egress: "none" });

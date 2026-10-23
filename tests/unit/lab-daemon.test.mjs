@@ -69,8 +69,8 @@ test("the quotas and the mount reach every action", () => {
   assert.ok(detached.argv.includes("-e"));
   assert.ok(!detached.argv.some((arg) => arg.startsWith("bad-name=")), "only well-formed env names pass");
 
-  const built = planCommand({ action: "build", params: { dockerfile: ".build/Dockerfile", image: "codegen:review" }, limits: LIMITS, jobDir: "/lab/j4", jobId: "j4" });
-  assert.deepEqual(built.argv, ["build", "--network", "laidback-lab", "-f", "/lab/j4/work/.build/Dockerfile", "-t", "codegen:review", "-"]);
+  const built = planCommand({ action: "build", params: { dockerfile: ".ci/Dockerfile", image: "builder:review" }, limits: LIMITS, jobDir: "/lab/j4", jobId: "j4" });
+  assert.deepEqual(built.argv, ["build", "--network", "laidback-lab", "-f", "/lab/j4/work/.ci/Dockerfile", "-t", "builder:review", "-"]);
   assert.equal(built.stdinTar, true, "the context arrives on stdin");
 
   assert.equal(planCommand({ action: "down", params: {}, limits: LIMITS, jobDir: "/lab/j5", jobId: "j5" }).cleanup, true);

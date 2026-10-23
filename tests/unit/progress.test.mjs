@@ -152,11 +152,11 @@ test("state is still tracked when the log stream is off", () => {
 
 test("the heartbeat names the call that is still running", async () => {
   const h = harness();
-  h.progress.handle({ type: "tool_execution_start", toolCallId: "t1", toolName: "bash", args: { command: "cd /work/scratch/x && go mod download -json github.com/osrg/gobgp/v4@v4.8.0" } });
+  h.progress.handle({ type: "tool_execution_start", toolCallId: "t1", toolName: "bash", args: { command: "cd /work/scratch/x && go mod download -json github.com/acme/scheduler@v1.4.2" } });
 
   h.advance(95_000);
   await h.beat();
-  assert.match(h.lines.at(-1), /waiting on bash command=cd \/work\/scratch\/x && go mod download -json github\.com\/osrg\/gobgp\/v4@v4\.8\.0 running 95s, 1 tool call\(s\)/);
+  assert.match(h.lines.at(-1), /waiting on bash command=cd \/work\/scratch\/x && go mod download -json github\.com\/acme\/scheduler@v1\.4\.2 running 95s, 1 tool call\(s\)/);
   assert.match(h.progress.state.phase, /waiting on bash .* running 95s/, "the gate display reads the same state");
 
   // A second call is counted, not described: the line stays short on a phone screen.

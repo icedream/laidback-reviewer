@@ -64,7 +64,7 @@ export function nonInteractiveContract({ cfg, checkoutDir, prRef }) {
     "- You have no GitHub write tool. Do not attempt to post, and do not simulate posting.",
     "- Do not claim an approval or a requested change you did not submit, and do not write that a",
     "  review was posted. The harness decides whether a verdict reaches GitHub and words it.",
-    "- Name the tools you ran as evidence: 'against gobgp v4.9.0 as pinned', 'golangci-lint v2.12.2 with",
+    "- Name the tools you ran as evidence: 'against the pinned version of a dependency', 'golangci-lint v2.12.2 with",
     "  the repo's .golangci.yml'. What stays out of the review is the runner and its limits: what the image",
     "  lacks, which hosts were unreachable, which credentials were missing. That belongs to the operator,",
     "  on the gate and in the log. A check you did not do is simply not claimed: write what you did check.",
