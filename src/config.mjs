@@ -177,6 +177,19 @@ export const CONFIG_SCHEMA = record({
       def: ["github.com", "api.github.com", "raw.githubusercontent.com", "mcp.atlassian.com"],
     }),
   }),
+  lab: record({
+    enabled: bool({ def: false }),
+    url: string({ def: "" }),
+    tokenEnv: string({ def: "LAIDBACK_LAB_TOKEN" }),
+    // The daemon enforces the ceiling; these are what the harness asks it for.
+    cpus: integer({ def: 4, min: 1, max: 16 }),
+    memoryMb: integer({ def: 4096, min: 256, max: 32768 }),
+    diskMb: integer({ def: 20480, min: 1024, max: 262144 }),
+    pids: integer({ def: 512, min: 32, max: 4096 }),
+    jobTimeoutMs: integer({ def: 600_000, min: 10_000, max: 3_600_000 }),
+    egress: enumerated(["none", "registries", "open"], { def: "registries" }),
+    concurrency: integer({ def: 1, min: 1, max: 4 }),
+  }),
   gate: record({
     channel: enumerated(["slack", "telegram", "cli", "none"], { def: "cli" }),
     beforeReview: bool({ def: false }),

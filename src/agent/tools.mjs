@@ -9,6 +9,7 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { nearDuplicate } from "../proposal/dedupe.mjs";
+import { LAB_ACTIONS, labGateRow } from "../lab/client.mjs";
 
 export function createProposalCollector() {
   return {
@@ -38,7 +39,7 @@ export function createProposalCollector() {
 
 const textResult = (text, details) => ({ content: [{ type: "text", text }], details });
 
-export function createReviewTools({ collector, limits = {} }) {
+export function createReviewTools({ collector, limits = {}, lab = null }) {
   const maxComments = limits.maxComments ?? 25;
 
   const proposeComment = defineTool({
@@ -152,5 +153,40 @@ export function createReviewTools({ collector, limits = {} }) {
     },
   });
 
-  return [proposeComment, proposeBody, proposeVerdict, recordGate, submit];
+  // The only way a review reaches a container. Kept out of the shell so the ceiling and the record hold.
+  const labTool = lab
+    ? defineTool({
+        name: "review_lab",
+        label: "Run a check in the lab",
+        description:
+          "Build or run containers in the disposable lab for this review: a database to apply a migration against, a daemon to confirm protocol behaviour, a Dockerfile from the change to see whether it builds. " +
+          `The lab holds no credentials, allows egress of ${limits.lab?.egress ?? "registries"} only, and is destroyed after the run. Every call is recorded as a gate row.`,
+        parameters: Type.Object({
+          action: Type.String({ description: LAB_ACTIONS.join(" | ") }),
+          image: Type.Optional(Type.String({ description: "Image to run, or to tag a build as" })),
+          dockerfile: Type.Optional(Type.String({ description: "Dockerfile path among the files shipped in" })),
+          cmd: Type.Optional(Type.String({ description: "Command to run inside, as a shell line" })),
+          files: Type.Optional(Type.Array(Type.String(), { description: "Paths from this run's scratch tree to copy in, read-only" })),
+          label: Type.Optional(Type.String({ description: "What this check is for, in a few words" })),
+        }),
+        async execute(_id, params) {
+          if (!LAB_ACTIONS.includes(params.action)) return textResult(`unknown lab action: ${params.action}`, {});
+          const result = await lab.call(params.action, {
+            image: params.image,
+            dockerfile: params.dockerfile,
+            cmd: params.cmd,
+            files: params.files,
+            label: params.label,
+          });
+          const row = labGateRow(params.action, params, result);
+          collector.gates.push(row);
+          const text = result.ok
+            ? `lab ${params.action}: exit ${result.exit} in ${result.durationMs}ms\n${result.stdout.slice(0, 1500)}${result.stderr ? `\nstderr: ${result.stderr.slice(0, 600)}` : ""}`
+            : `lab ${params.action} did not run: ${result.error}`;
+          return textResult(text, { gate: row.gate, result: row.result });
+        },
+      })
+    : null;
+
+  return [proposeComment, proposeBody, proposeVerdict, recordGate, submit, ...(labTool ? [labTool] : [])];
 }

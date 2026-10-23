@@ -110,6 +110,21 @@ tools:
     - proxy.golang.org              # go build and go test fetch modules
     - sum.golang.org
 
+# A disposable environment for checks that need a running thing: apply a migration to Postgres, confirm
+# protocol behaviour against a real daemon, build the Dockerfile a change adds. Off by default, and the
+# daemon behind the URL is a separate box or user with no credentials of yours in it.
+lab:
+  enabled: false
+  url: ""                               # http://127.0.0.1:9443
+  tokenEnv: "LAIDBACK_LAB_TOKEN"
+  cpus: 4
+  memoryMb: 4096
+  diskMb: 20480
+  pids: 512
+  jobTimeoutMs: 600000                  # wall clock the daemon enforces per job
+  egress: registries                    # none | registries | open
+  concurrency: 1                        # builds compete for cores with everything else
+
 gate:
   channel: cli                      # slack | telegram | cli | none
   beforeReview: false               # hold the task until approved, so no tokens are spent first

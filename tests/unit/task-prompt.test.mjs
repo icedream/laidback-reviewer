@@ -209,3 +209,15 @@ test("the prompt names what the image lacks and what the credential can read", (
   assert.match(prompt, /This credential reads the organisation's private repositories/);
   assert.match(prompt, /git tag --sort=-creatordate/);
 });
+
+test("the lab is described by what a review can do with it", () => {
+  const base = { pr, files, checkoutDir: "/work/x", headSha: "abcdef0123456789", writableRoots: ["/tmp"] };
+  const prompt = buildTaskPrompt({ ...base, lab: { egress: "registries", cpus: 4, memoryMb: 4096, jobTimeoutMs: 600_000 } });
+  assert.match(prompt, /build an image, start a/);
+  assert.match(prompt, /through review_lab, never through the shell/);
+  assert.match(prompt, /Egress registries; ceiling 4 cpus, 4096 MB,/);
+  assert.match(prompt, /10 minutes per job/);
+  assert.match(prompt, /Report a lab result as evidence about the pull request, and say nothing about the lab itself/);
+
+  assert.doesNotMatch(buildTaskPrompt(base), /review_lab/, "no lab, no paragraph");
+});

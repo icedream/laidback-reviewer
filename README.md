@@ -212,6 +212,38 @@ timeout, 429, 5xx) are retried on the *same session* up to `agent.model.busyRetr
 the session has already read the diff and run the gates, so it is asked to continue rather than start
 over. A hard error (context length exceeded, bad tool call) is raised immediately.
 
+## Running a check that needs a running thing
+
+Some findings cannot be settled by reading: whether a migration applies, whether a daemon really emits the
+record the code builds, whether the Dockerfile a change adds actually builds. `lab.enabled` gives the review
+somewhere to find out.
+
+```yaml
+lab:
+  enabled: false
+  url: ""                               # the lab daemon, e.g. http://127.0.0.1:9443
+  tokenEnv: "LAIDBACK_LAB_TOKEN"
+  cpus: 4
+  memoryMb: 4096
+  diskMb: 20480
+  pids: 512
+  jobTimeoutMs: 600000
+  egress: registries                    # none | registries | open
+  concurrency: 1
+```
+
+The review reaches it through one tool, `review_lab`, with `build | run | exec | logs | compose | down`. The
+shell keeps its refusal of `docker`, `podman`, `kubectl` and friends, so there is one door, and that door
+attaches the limits, records the call as a gate row with exit code, duration, image and egress mode, and
+reports a failed attempt as `not_run` rather than as silence. The lab has no credentials of any kind, and
+nothing in it survives the run.
+
+What runs behind the URL is your decision. The harness only asks for a daemon that takes those limits:
+rootless podman under its own user is enough to start with, and a micro-VM per job can replace it later
+without changing the tool. `LAB-PLAN.md` in this repository's working notes records the containment tiers,
+the egress allow-list, and what is deliberately refused, such as letting the lab reach the bot's network or
+credentials.
+
 ## Sharing one inference slot
 
 A home server runs one prompt at a time, and a request queued behind another still occupies a

@@ -50,3 +50,43 @@ test("a suggestion is part of the finding, not a duplicate of it", async () => {
 
   assert.equal(collector.comments.length, 1, "the suggestion does not create a second thread");
 });
+
+function labTools(stub) {
+  const collector = createProposalCollector();
+  const tools = createReviewTools({ collector, limits: { lab: { egress: "registries" } }, lab: stub });
+  return { collector, tools, lab: tools.find((tool) => tool.name === "review_lab") };
+}
+
+test("a lab call is recorded as a gate row the operator can read back", async () => {
+  const seen = [];
+  const stub = {
+    async call(action, payload) {
+      seen.push({ action, payload });
+      return { ok: true, action, exit: 0, stdout: "3 migrations applied, 0 errors", stderr: "", image: payload.image, jobId: "j-7", durationMs: 18_400, egress: "registries" };
+    },
+  };
+  const { collector, lab } = labTools(stub);
+
+  const result = await lab.execute("1", { action: "run", image: "postgres:16-alpine", cmd: "psql -f migration.sql", label: "does the migration apply" });
+
+  assert.deepEqual(seen[0].action, "run");
+  assert.match(result.content[0].text, /lab run: exit 0 in 18400ms/);
+  assert.match(result.content[0].text, /3 migrations applied/);
+  assert.equal(result.details.result, "pass");
+  assert.deepEqual(collector.gates.map((gate) => gate.gate), ["lab run: postgres:16-alpine (does the migration apply)"]);
+});
+
+test("a lab that could not run still leaves its row, marked not_run", async () => {
+  const stub = { async call() { return { ok: false, error: "lab daemon unreachable: connect ECONNREFUSED" }; } };
+  const { collector, lab } = labTools(stub);
+
+  const result = await lab.execute("1", { action: "build", dockerfile: "Dockerfile" });
+
+  assert.match(result.content[0].text, /did not run: lab daemon unreachable/);
+  assert.equal(collector.gates.length, 1, "the attempt is recorded even when it went nowhere");
+  assert.equal(collector.gates[0].result, "not_run");
+});
+
+test("no lab tool without a lab", () => {
+  assert.equal(labTools(null).lab, undefined, "disabled config offers no door");
+});
