@@ -267,13 +267,34 @@ export async function runLoop({
     return decided.length;
   }
 
+  // One channel request at a time for the whole process. A channel that holds a request open, as Telegram
+  // long-polling does, treats a second one as another bot instance and terminates the first, which is what
+  // a cycle reading the gate on its own used to cause at every discovery boundary.
+  let inFlightRead = null;
+
+  function takeGateRead() {
+    // Join the read that is already open rather than issuing a second one: a second request on the same
+    // token is what the channel reports as another bot instance.
+    inFlightRead ??= readGate().finally(() => {
+      inFlightRead = null;
+    });
+    return inFlightRead;
+  }
+
+  /** An opportunistic read: if the poller already holds the slot, this one does nothing rather than wait. */
+  function opportunisticGateRead() {
+    return inFlightRead ? Promise.resolve([]) : takeGateRead();
+  }
+
+  // A cycle reads the gate through this transport, so its read joins the poller's instead of racing it.
+  const gateForCycle = transport ? { ...transport, readDecisions: async () => (inFlightRead ? [] : (await takeGateRead(), [])) } : null;
+
   while (!stop.current) {
     const started = now();
     wake = false;
 
     // The gate is read while a cycle runs, not only after it. A review takes minutes, and a tap pressed in
     // that window used to sit unread until the pass finished.
-    let reading = null;
     let stopPoller;
     if (transport?.longPollMs) {
       // The transport holds its request open until something arrives, so the poller is a loop rather than
@@ -282,9 +303,7 @@ export async function runLoop({
       let running = true;
       const polling = (async () => {
         while (running && !stop.current) {
-          reading = readGate();
-          await reading;
-          reading = null;
+          await takeGateRead();
         }
       })();
       stopPoller = async () => {
@@ -293,18 +312,16 @@ export async function runLoop({
       };
     } else {
       stopPoller = gateTimer(cfg.gate.pollIntervalMs, () => {
-        reading ??= readGate().finally(() => {
-          reading = null;
-        });
+        if (!inFlightRead) void takeGateRead();
       });
     }
     try {
-      await runCycle({ cfg, store, client, transport, shutdown });
+      await runCycle({ cfg, store, client, transport: gateForCycle, shutdown });
     } catch (error) {
       console.error(`cycle failed: ${error.message}`);
     } finally {
       await stopPoller();
-      if (reading) await reading;
+      if (inFlightRead) await inFlightRead;
     }
 
     // Between discovery cycles the loop waits on the gate rather than on the clock: a tap lands within
@@ -313,7 +330,7 @@ export async function runLoop({
     const until = started + cfg.github.pollIntervalMs;
     while (!stop.current && !wake && now() - started < cfg.github.pollIntervalMs) {
       if (!transport?.longPollMs) await nap(Math.min(cfg.gate.pollIntervalMs, Math.max(0, until - now())));
-      await readGate();
+      await opportunisticGateRead();
     }
   }
 

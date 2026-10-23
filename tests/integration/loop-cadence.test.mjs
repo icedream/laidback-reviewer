@@ -134,27 +134,33 @@ test("a long-polling channel is read continuously, one request at a time", async
   let overlaps = 0;
   let inFlight = false;
   let releaseCycle = null;
+  let cycleRead = null;
 
   const transport = {
-    // The channel holds the request open, so the poller loops rather than waiting on a clock.
+    // The channel holds its request open, so a second one from the same process reads as a second bot
+    // instance and the channel terminates the first.
     longPollMs: 25_000,
     expire: () => 0,
     readDecisions: async () => {
       outstanding += 1;
       if (outstanding > 1) overlaps += 1;
-      reads.push(inFlight);
-      if (inFlight) {
+      const duringCycle = inFlight;
+      reads.push(duringCycle);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      outstanding -= 1;
+      if (duringCycle) {
         releaseCycle();
         stop.current = true;
       }
-      await new Promise((resolve) => setTimeout(resolve, 1));
-      outstanding -= 1;
-      return [];
+      return [{ id: "g1", state: "approved", decided_by: "telegram:1" }];
     },
   };
-  const runCycle = () =>
+  const runCycle = ({ transport: gateChannel }) =>
     new Promise((resolve) => {
       inFlight = true;
+      gateChannel.readDecisions().then((seen) => {
+        cycleRead = seen;
+      });
       releaseCycle = () => {
         inFlight = false;
         resolve();
@@ -165,4 +171,5 @@ test("a long-polling channel is read continuously, one request at a time", async
 
   assert.ok(reads.includes(true), `the poller stopped asking during the cycle: ${JSON.stringify(reads)}`);
   assert.equal(overlaps, 0, "two getUpdates on one token means 409s and lost decisions");
+  assert.deepEqual(cycleRead, [], "the cycle joins the open read instead of opening another");
 });

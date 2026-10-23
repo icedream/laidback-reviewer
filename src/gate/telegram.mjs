@@ -37,11 +37,14 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
   async function call(method, payload = {}) {
     // A rate limit is a wait, not a failure: honour retry_after once before saying anything went wrong.
     for (let attempt = 0; ; attempt += 1) {
+      // A long-poll holds the response open for as long as we asked the channel to wait, so the local
+      // deadline has to sit above that or the client cancels a request the channel is still answering.
+      const holdMs = method === "getUpdates" ? Math.max(0, Number(telegram.longPollSeconds ?? 0)) * 1000 : 0;
       const response = await fetch(`${apiBase}/bot${token}/${method}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(telegram.timeoutMs),
+        signal: AbortSignal.timeout(telegram.timeoutMs + holdMs),
       });
       const body = await response.json().catch(() => ({}));
       const retryAfterMs = Math.min(Number(body.parameters?.retry_after ?? 1) * 1000, 60_000);
