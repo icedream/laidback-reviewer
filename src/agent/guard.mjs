@@ -24,7 +24,7 @@ const BASH_DENY = [
   { re: /\bgh\s+pr\s+(merge|close|review|ready|rebase|comment)\b/, reason: "gh pr writes are not permitted; reviews go through the harness" },
   { re: /\bgh\s+(repo|release|workflow|run|secret|auth(?!\s+status)\b|extension)\b/, reason: "this gh subcommand is not permitted" },
   { re: /\bgh\s+api\b[^|;&]*(--input|-X\s*(POST|PUT|PATCH|DELETE)|--method\s+(POST|PUT|PATCH|DELETE))/, reason: "gh api writes are not permitted" },
-  { re: /(^|[|;&(]\s*)(sudo\s+)?(kubectl|helm|docker|podman|terraform|ansible|ssh|scp)\s/, reason: "deploy and remote-access tools are not available to a review run" },
+  { re: /(^|[|;&(]\s*)(sudo\s+)?(kubectl|helm|docker|podman|terraform|ansible|ssh|scp)\s/, reason: "deploy and remote-access tools are not available to a review run", hint: "review_lab is the door for container checks" },
   { re: /(^|[|;&(]\s*)(npm\s+publish|go\s+mod\s+(tidy|vendor)|pip\s+install|apt(-get)?\s+install)\b/, reason: "supply-chain and package-manager writes are not permitted" },
 ];
 
@@ -152,7 +152,7 @@ function atlassianToolName(toolName, input) {
   return "";
 }
 
-export function createReviewGuard({ allowHosts = [], bashEnabled = true, writableRoots = [], checkoutDir = "", log = [] } = {}) {
+export function createReviewGuard({ allowHosts = [], bashEnabled = true, writableRoots = [], checkoutDir = "", labEnabled = false, log = [] } = {}) {
   const scratchOpts = { writableRoots, checkoutDir };
   const block = (record) => {
     log.push(record);
@@ -176,7 +176,7 @@ export function createReviewGuard({ allowHosts = [], bashEnabled = true, writabl
           const hit = judged.map(({ source, original }) => ({ source, original, match: rule.re.exec(source) })).find((entry) => entry.match);
           if (!hit) continue;
           if (WORKSPACE_SCOPED.has(rule.reason) && inScratch(cdTargetsBefore(hit.original, hit.match.index).at(-1) ?? "", scratchOpts)) continue;
-          return block({ tool: "bash", command, reason: rule.reason });
+          return block({ tool: "bash", command, reason: labEnabled && rule.hint ? `${rule.reason} (${rule.hint})` : rule.reason });
         }
         if (manifestWriteDenied(runnable, scratchOpts)) {
           return block({ tool: "bash", command, reason: "writing a dependency manifest is not permitted; propose the change instead" });

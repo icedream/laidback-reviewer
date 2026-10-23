@@ -5,7 +5,7 @@
 
 import { commentableLines } from "../github/anchoring.mjs";
 
-export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, reRequest = null, context = null, compareDir = null, lint = null, resume = null, writableRoots = [], allowHosts = [] }) {
+export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, reRequest = null, context = null, compareDir = null, lint = null, resume = null, writableRoots = [], allowHosts = [], lab = null }) {
   const sections = [];
 
   sections.push(`Review pull request #${pr.number} in ${pr.repository}.`);
@@ -56,6 +56,19 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, r
         `those to the operator on the gate. A check you did not do is not claimed and not explained away.`,
         `And bound anything that can block on the network, the shell has no default time limit: write`,
         `'timeout 120 curl ...' or 'timeout 300 go mod download ...'.`,
+      ].join("\n"),
+    );
+  }
+
+  if (lab) {
+    sections.push(
+      [
+        `Lab. A disposable environment for a check that needs a running thing: build an image, start a`,
+        `database and apply the migration to it, confirm protocol behaviour against a real daemon. Reach it`,
+        `through review_lab, never through the shell: there is no docker or podman command, and the lab has`,
+        `no credentials of any kind. Egress ${lab.egress}; ceiling ${lab.cpus} cpus, ${lab.memoryMb} MB,`,
+        `${Math.max(1, Math.round((lab.jobTimeoutMs ?? 0) / 60000))} minutes per job. Every call is recorded with its exit code and output.`,
+        `Report a lab result as evidence about the pull request, and say nothing about the lab itself.`,
       ].join("\n"),
     );
   }

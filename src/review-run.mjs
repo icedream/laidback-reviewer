@@ -28,6 +28,7 @@ import { HeadMovedError, submitReview } from "./github/poster.mjs";
 import { createGate, renderGateSummary } from "./gate/gate.mjs";
 import { writeArtifact } from "./proposal/artifact.mjs";
 import { composeReview, planBanner } from "./proposal/policy.mjs";
+import { createLabClient } from "./lab/client.mjs";
 
 /** The task gate names the pull request and links it, so the message says which review it belongs to. */
 export function taskGateSummary({ pr, headSha }) {
@@ -149,11 +150,14 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   // not discovering the write boundary by hitting it. The toolchain install dir is included because a
   // repository that pins a version the image does not carry has to be able to fetch it itself.
   const writableRoots = [cfg.checkout.scratch, cfg.toolchain.installDir, compareDir, "/tmp"];
+  const labClient = createLabClient({ cfg, log });
+  if (labClient) log(`lab ${cfg.lab.url}: egress ${cfg.lab.egress}, ${cfg.lab.cpus} cpus, ${cfg.lab.memoryMb} MB, ${cfg.lab.concurrency} job(s) at a time`);
   const guard = createReviewGuard({
     allowHosts: cfg.tools.allowHosts,
     bashEnabled: cfg.tools.bash,
     writableRoots,
     checkoutDir,
+    labEnabled: Boolean(labClient),
   });
 
   const contract = nonInteractiveContract({ cfg, checkoutDir, prRef: pr.repository });
@@ -194,6 +198,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     compareDir,
     writableRoots,
     allowHosts: cfg.tools.allowHosts,
+    lab: labClient ? cfg.lab : null,
     lint: lint.mode === "off" ? null : lint,
     resume: task.resumeSessionFile ? { at: task.resumedAt ?? "", sessionFile: task.resumeSessionFile, reason: task.resumeReason ?? "interrupted" } : null,
     context: context.matched ? { description: context.description, instructions: context.instructions } : null,
@@ -247,7 +252,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     agentDef,
     contract,
     extensionFactories: [guard.extension],
-    customTools: createReviewTools({ collector, limits: { maxComments: cfg.reviews.maxComments } }),
+    customTools: createReviewTools({ collector, limits: { maxComments: cfg.reviews.maxComments, lab: cfg.lab }, lab: labClient }),
     sessionManager,
     tools: REVIEW_TOOLS(cfg),
   });

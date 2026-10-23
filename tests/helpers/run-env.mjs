@@ -52,6 +52,7 @@ export function baseConfig({ dir }) {
       systemPromptAddendum: "",
       model: { provider: FAKE_MODEL_PROVIDER, id: FAKE_MODEL_ID, thinking: "off", maxConcurrency: 1, busyBackoffMs: 0, busyRetries: 0, probe: "none" },
     },
+    lab: { enabled: false, url: "", tokenEnv: "LAIDBACK_LAB_TOKEN", cpus: 4, memoryMb: 4096, diskMb: 20480, pids: 512, jobTimeoutMs: 600_000, egress: "registries", concurrency: 1 },
     context: { enabled: false, maxAgeDays: 30, minScore: 35, crossPrFileOverlap: true, allowCrossRepo: false, sessionDir: "", mode: "auto", maxForkTokens: 48000 },
     checkout: { mode: "existing", root: path.join(dir, "repos"), scratch: path.join(dir, "scratch"), compareDir: path.join(dir, "scratch", "refs"), gitConfig: path.join(dir, "gitconfig"), existingDir: "", goPrivate: [] },
     // Tests never reach the network, so the installer is off unless a test turns it on and points

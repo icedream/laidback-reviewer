@@ -231,3 +231,17 @@ test("banner.rephrase splits into the two slots and says so", () => {
   assert.equal(cfg.banner.rephraseSuffix, true);
   assert.equal(cfg.banner.mode, "authored", "the notice is the review's to carry unless told otherwise");
 });
+
+test("the lab is off, addressed nowhere, and holds to registries", () => {
+  const cfg = loadConfig({ path: writeConfig({ github: { me: "octocat" }, agent: { model: { provider: "p", id: "m" } }, lab: { enabled: true } }), env: {} });
+  assert.equal(cfg.lab.enabled, true);
+  assert.equal(cfg.lab.url, "", "an enabled lab with no address is caught before a review runs");
+  assert.equal(cfg.lab.egress, "registries");
+  assert.deepEqual([cfg.lab.cpus, cfg.lab.memoryMb, cfg.lab.concurrency], [4, 4096, 1]);
+  assert.equal(cfg.lab.tokenEnv, "LAIDBACK_LAB_TOKEN");
+
+  assert.throws(
+    () => loadConfig({ path: writeConfig({ github: { me: "octocat" }, agent: { model: { provider: "p", id: "m" } }, lab: { egress: "everything" } }), env: {} }),
+    /egress/,
+  );
+});
