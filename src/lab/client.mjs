@@ -118,6 +118,7 @@ export function createLabClient({ cfg, env = process.env, staging = {}, log = ()
         signal: AbortSignal.timeout(Math.max(lab.jobTimeoutMs ?? 600_000, 10_000) + 30_000),
         body: JSON.stringify({
           ...payload,
+          session: staging.session ?? "",
           files,
           contextTar: context.contextTar,
           limits: { cpus: lab.cpus, memoryMb: lab.memoryMb, diskMb: lab.diskMb, pids: lab.pids, timeoutMs: lab.jobTimeoutMs },
@@ -143,6 +144,7 @@ export function createLabClient({ cfg, env = process.env, staging = {}, log = ()
       stderr: String(body?.stderr ?? "").slice(0, 2000),
       image: String(body?.image ?? payload.image ?? ""),
       jobId: String(body?.job ?? ""),
+      ...(body?.service ? { service: String(body.service) } : {}),
       durationMs: Number(body?.durationMs ?? Date.now() - startedAt),
       egress: lab.egress ?? "registries",
     };

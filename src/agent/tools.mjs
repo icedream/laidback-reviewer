@@ -171,7 +171,7 @@ export function createReviewTools({ collector, limits = {}, lab = null }) {
           cmd: Type.Optional(Type.String({ description: "Command to run inside, as a shell line" })),
           files: Type.Optional(Type.Array(Type.String(), { description: "Paths from this run's scratch tree to copy in, read-only" })),
           context: Type.Optional(Type.String({ description: "Directory from this run's scratch tree to send as the build context" })),
-          container: Type.Optional(Type.String({ description: "Container name within this job, for exec and logs" })),
+          container: Type.Optional(Type.String({ description: "Name for a service you start, and the same name to pass to exec, logs and down. It resolves only inside this session." })),
           label: Type.Optional(Type.String({ description: "What this check is for, in a few words" })),
         }),
         async execute(_id, params) {
@@ -187,8 +187,9 @@ export function createReviewTools({ collector, limits = {}, lab = null }) {
           });
           const row = labGateRow(params.action, params, result);
           collector.gates.push(row);
+          const service = result.service ? `\nservice ${result.service} is up: pass it as container to exec, logs and down.` : "";
           const text = result.ok
-            ? `lab ${params.action}: exit ${result.exit} in ${result.durationMs}ms\n${result.stdout.slice(0, 1500)}${result.stderr ? `\nstderr: ${result.stderr.slice(0, 600)}` : ""}`
+            ? `lab ${params.action}: exit ${result.exit} in ${result.durationMs}ms\n${result.stdout.slice(0, 1500)}${result.stderr ? `\nstderr: ${result.stderr.slice(0, 600)}` : ""}${service}`
             : `lab ${params.action} did not run: ${result.error}`;
           return textResult(text, { gate: row.gate, result: row.result });
         },

@@ -35,6 +35,24 @@ export function jobName(jobId, slot = "") {
   return `laidback-${safeName(jobId).slice(0, 24)}${slot ? `-${safeName(slot)}` : ""}`.slice(0, 120);
 }
 
+/**
+ * A service lives for the session that started it, not for one call, so it is named by the session and the
+ * short label the review chose. The label is what the review gets back and passes to exec, logs and down,
+ * and it resolves for nobody else's session.
+ */
+export function servicePrefix(session) {
+  return `lb-${safeSegment(session).slice(0, 16)}`;
+}
+
+export function serviceName(session, label) {
+  return `${servicePrefix(session)}-${safeSegment(label)}`.slice(0, 120);
+}
+
+export function serviceLabel(value) {
+  const clean = safeSegment(String(value ?? "").toLowerCase());
+  return clean || `svc${crypto.randomBytes(3).toString("hex")}`;
+}
+
 export function newJobId(now = Date.now()) {
   return `${now.toString(36)}-${crypto.randomBytes(4).toString("hex")}`;
 }
@@ -62,7 +80,7 @@ function proxyArgs(egress) {
  *
  * @param jobDir directory holding the files the harness shipped, mounted read-only at /work
  */
-export function planCommand({ action, params, limits, egress = "registries", jobDir, jobId }) {
+export function planCommand({ action, params, limits, egress = "registries", jobDir, jobId, session = "" }) {
   const work = path.join(jobDir, "work");
   const mount = `${work}:/work:ro,z`;
   const network = networkFor(egress);
@@ -88,18 +106,23 @@ export function planCommand({ action, params, limits, egress = "registries", job
       if (!params.image) throw new Error("start needs an image");
       const env = Object.fromEntries(Object.entries(params.env ?? {}).filter(([name]) => /^[A-Z_][A-Z0-9_]*$/i.test(name)).slice(0, 32));
       const envArgs = Object.entries(env).flatMap(([name, value]) => ["-e", `${name}=${String(value).slice(0, 512)}`]);
+      const label = serviceLabel(params.container);
+      const service = serviceName(session || jobId, label);
       return {
-        argv: ["run", "-d", "--name", jobName(jobId), "--network", network, "-v", mount, ...envArgs, ...limitFlags(limits), ...proxyArgs(egress), safeImage(params.image), ...(cmd ? ["sh", "-c", cmd] : [])],
+        argv: ["run", "-d", "--name", service, "--network", network, "-v", mount, ...envArgs, ...limitFlags(limits), ...proxyArgs(egress), safeImage(params.image), ...(cmd ? ["sh", "-c", cmd] : [])],
         cwd: work,
         image: String(params.image),
+        service: label,
       };
     }
     case "exec": {
       if (!cmd) throw new Error("exec needs a command");
-      return { argv: ["exec", jobName(jobId, params.container ? safeSegment(params.container) : ""), "sh", "-c", cmd], cwd: work };
+      if (!params.container) throw new Error("exec needs the container label that start returned");
+      return { argv: ["exec", serviceName(session || jobId, serviceLabel(params.container)), "sh", "-c", cmd], cwd: work };
     }
     case "logs":
-      return { argv: ["logs", "--tail", "400", jobName(jobId, params.container ? safeSegment(params.container) : "")], cwd: work };
+      if (!params.container) throw new Error("logs needs the container label that start returned");
+      return { argv: ["logs", "--tail", "400", serviceName(session || jobId, serviceLabel(params.container))], cwd: work };
     case "compose": {
       const file = safeSegment(params.compose ?? "compose.yaml");
       if (!cmd) throw new Error("compose needs an action, e.g. up -d");
@@ -161,10 +184,17 @@ export function executePodman({ binary = "podman", argv, cwd, timeoutMs = 600_00
   });
 }
 
-/** Containers this job may have left behind, and its scratch directory. */
-export async function cleanupJob({ run, jobId, jobDir, log = () => {} }) {
-  const listed = await run(["ps", "-a", "--filter", `name=${jobName(jobId)}`, "--format", "{{.Names}}"], { timeoutMs: 30_000 });
-  for (const name of String(listed.stdout ?? "").split("\n").map((line) => line.trim()).filter(Boolean)) {
+/** Containers this job may have left behind, and its scratch directory. Services outlive the call that
+ * started them, so only `down` sweeps the session's whole set. */
+export async function cleanupJob({ run, jobId, jobDir, session = "", sweepServices = false, log = () => {} }) {
+  const filters = [`name=${jobName(jobId)}`];
+  if (sweepServices && session) filters.push(`name=${servicePrefix(session)}`);
+  const names = new Set();
+  for (const filter of filters) {
+    const listed = await run(["ps", "-a", "--filter", filter, "--format", "{{.Names}}"], { timeoutMs: 30_000 });
+    for (const name of String(listed.stdout ?? "").split("\n").map((line) => line.trim()).filter(Boolean)) names.add(name);
+  }
+  for (const name of names) {
     await run(["rm", "-f", name], { timeoutMs: 30_000 });
     log(`lab ${jobId}: removed ${name}`);
   }
@@ -263,9 +293,9 @@ export function createLabHandler({ limits, egress = "registries", workspace = "/
       const staged = stageJob({ jobDir, files: params.files, contextTar: params.contextTar });
       if (staged.skipped.length) log(`lab ${jobId}: ${staged.skipped.join("; ")}`);
 
-      const plan = planCommand({ action, params, limits, egress, jobDir, jobId });
+      const plan = planCommand({ action, params, limits, egress, jobDir, jobId, session: params.session ?? "" });
       if (plan.cleanup) {
-        await cleanup({ run, jobId, jobDir, log });
+        await cleanup({ run, jobId, jobDir, session: params.session ?? "", sweepServices: true, log });
         result = { exit: 0, stdout: "job containers removed", stderr: "", durationMs: 0, image: "" };
       } else {
         const started = Date.now();
@@ -277,7 +307,7 @@ export function createLabHandler({ limits, egress = "registries", workspace = "/
             timeoutMs: limits.timeoutMs ?? limits.jobTimeoutMs ?? 600_000,
             stdinTar: plan.stdinTar && params.contextTar ? fs.readFileSync(path.join(jobDir, "context.tar")) : null,
           });
-          result = { ...output, image: plan.image ?? params.image ?? "" };
+          result = { ...output, image: plan.image ?? params.image ?? "", ...(plan.service ? { service: plan.service } : {}) };
         }
         log(`lab ${jobId} ${action}: exit ${result.exit} in ${Date.now() - started}ms`);
         // Only a call that ran to completion in one go leaves nothing behind. A service started for exec

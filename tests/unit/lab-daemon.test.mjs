@@ -191,7 +191,7 @@ test("inspecting a service does not tear it down", async () => {
   const handler = createLabHandler({ limits: LIMITS, run, workspace: tempDir("svc"), cleanup: async ({ jobId }) => cleaned.push(jobId) });
 
   for (const url of ["/start", "/exec", "/exec", "/logs"]) {
-    const { req, res } = request({ url, body: { job: "svcA", image: "redis:7-alpine", cmd: "redis-cli ping" } });
+    const { req, res } = request({ url, body: { job: "svcA", session: "run-7f3a", container: "cache", image: "redis:7-alpine", cmd: "redis-cli ping" } });
     await handler(req, res);
     assert.equal(res.payload.exit, 0, url);
   }
@@ -200,4 +200,17 @@ test("inspecting a service does not tear it down", async () => {
   const last = request({ url: "/down", body: { job: "svcA" } });
   await handler(last.req, last.res);
   assert.deepEqual(cleaned, ["svcA"], "and it goes when the review says so");
+});
+
+test("a service is named for the session, and the same label finds it again", () => {
+  const started = planCommand({ action: "start", params: { image: "docker.io/library/gobgp:latest", container: "ribpeer" }, limits: LIMITS, jobDir: "/lab/j9", jobId: "job-a", session: "run-7f3a" });
+  assert.ok(started.argv.includes("lb-run-7f3a-ribpeer"), started.argv.join(" "));
+  assert.equal(started.service, "ribpeer");
+
+  const inspected = planCommand({ action: "exec", params: { cmd: "gobgp global", container: "ribpeer" }, limits: LIMITS, jobDir: "/lab/j9", jobId: "job-b", session: "run-7f3a" });
+  assert.equal(inspected.argv[1], "lb-run-7f3a-ribpeer", "a later call reaches the service it belongs to");
+
+  const other = planCommand({ action: "exec", params: { cmd: "gobgp global", container: "ribpeer" }, limits: LIMITS, jobDir: "/lab/j9", jobId: "job-c", session: "run-other" });
+  assert.equal(other.argv[1], "lb-run-other-ribpeer", "another session's label cannot reach this one");
+  assert.throws(() => planCommand({ action: "exec", params: { cmd: "id" }, limits: LIMITS, jobDir: "/lab/j9", jobId: "job-d", session: "run-7f3a" }), /needs the container label/);
 });
