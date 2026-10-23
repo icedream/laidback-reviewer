@@ -58,6 +58,30 @@ function stripHeredocs(command) {
     .replace(/<<-?\s*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?[^\n]*$/g, "<<removed");
 }
 
+/**
+ * Quoted text is data, not commands. A grep pattern that mentions `docker run`, or an echo that prints
+ * `=== gh auth ===`, is not reaching for either tool, and it cost real reviews a turn each.
+ *
+ * The contents are blanked out rather than removed, so the offsets still line up with the original
+ * command and a workspace-scoped decision can still read the real `cd` before the match.
+ */
+function maskQuotedText(command) {
+  return String(command).replace(/'[^']*'|"[^"]*"|`[^`]*`/g, (whole) => whole[0] + " ".repeat(Math.max(0, whole.length - 2)) + whole.slice(-1));
+}
+
+/**
+ * Text the shell parses as commands again: the quoted argument of `bash -c`, `eval`, `python -c`,
+ * `node -e` and friends. Masking those would open a hole, so each body is judged as its own command.
+ */
+function reParsedBodies(command) {
+  const bodies = [];
+  // The body is read up to its own closing quote, since a python -c body is full of the other kind.
+  const re = /(?:\b(?:bash|sh|zsh|dash|fish)\s+(?:-[A-Za-z]+\s+)*|\beval\s+|\b(?:python3?|node|perl|ruby)\s+-[ec]\s+)("((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')/g;
+  let match;
+  while ((match = re.exec(command))) bodies.push(match[2] ?? match[3] ?? "");
+  return bodies;
+}
+
 // Rules that only matter for the tree under review. The same verb inside a scratch copy is how a review
 // checks whether `go mod tidy` would come out clean, which is a question about the PR, not a write to it.
 const WORKSPACE_SCOPED = new Set([
@@ -145,10 +169,13 @@ export function createReviewGuard({ allowHosts = [], bashEnabled = true, writabl
         // A heredoc body is text the command carries, not commands it runs: a review note that quotes
         // `go mod tidy` must not read as running it.
         const runnable = stripHeredocs(command);
+        // Offsets are identical, so the workspace decision below still reads the real paths.
+        const positions = maskQuotedText(runnable);
+        const judged = [{ source: positions, original: runnable }, ...reParsedBodies(runnable).map((body) => ({ source: body, original: body }))];
         for (const rule of BASH_DENY) {
-          const match = rule.re.exec(runnable);
-          if (!match) continue;
-          if (WORKSPACE_SCOPED.has(rule.reason) && inScratch(cdTargetsBefore(runnable, match.index).at(-1) ?? "", scratchOpts)) continue;
+          const hit = judged.map(({ source, original }) => ({ source, original, match: rule.re.exec(source) })).find((entry) => entry.match);
+          if (!hit) continue;
+          if (WORKSPACE_SCOPED.has(rule.reason) && inScratch(cdTargetsBefore(hit.original, hit.match.index).at(-1) ?? "", scratchOpts)) continue;
           return block({ tool: "bash", command, reason: rule.reason });
         }
         if (manifestWriteDenied(runnable, scratchOpts)) {
