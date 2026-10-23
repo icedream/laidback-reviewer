@@ -9,7 +9,7 @@
 import { prepareCheckout, releaseWorktree, sweepScratch } from "./checkout.mjs";
 import { findCandidates } from "./discovery.mjs";
 import { taskGateDecision } from "./gate/gate.mjs";
-import { clearFailure, failurePlan, recordFailure } from "./proposal/retries.mjs";
+import { clearFailure, failureNote, failurePlan, recordFailure } from "./proposal/retries.mjs";
 import { postApprovedReview } from "./proposal/repost.mjs";
 import { runReview } from "./review-run.mjs";
 
@@ -135,7 +135,14 @@ export async function cycle({
       }
       // Recorded against this head so the next cycle waits rather than re-running a busy server
       // or a branch that does not build.
-      recordFailure({ cfg, store, key, error, log });
+      const plan = recordFailure({ cfg, store, key, error, log });
+      if (cfg.gate?.notifyFailures !== false && transport?.notify) {
+        try {
+          await transport.notify(failureNote({ cfg, candidate, error, plan }));
+        } catch (notifyError) {
+          log(`    the gate channel could not carry the failure: ${notifyError.message}`);
+        }
+      }
     } finally {
       if (checkout && !keepCheckout) releaseWorktree({ ...checkout, cfg, log });
     }

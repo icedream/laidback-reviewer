@@ -113,3 +113,37 @@ test("a run that recovers clears the failure record for its head", async () => {
     env.close();
   }
 });
+
+test("a run that dies is said out loud on the gate channel", async () => {
+  const notes = [];
+  const transport = {
+    post: async () => true,
+    readDecisions: async () => [],
+    expire: () => 0,
+    notify: async (text) => notes.push(text),
+  };
+  const env = await setupReviewRun({ overrides: retryOverrides, turns: [], transport });
+  try {
+    await env.cycle({ transport });
+    assert.equal(notes.length, 1, "the operator hears about the dead run without reading a log");
+    assert.match(notes[0], /review failed/);
+    assert.match(notes[0], /attempt 2 of 3 at /);
+    assert.match(env.log(), /run failed/);
+  } finally {
+    env.close();
+  }
+});
+
+test("a parked head is said out loud too", async () => {
+  const notes = [];
+  const transport = { post: async () => true, readDecisions: async () => [], expire: () => 0, notify: async (text) => notes.push(text) };
+  const env = await setupReviewRun({ overrides: retryOverrides, turns: [], transport });
+  try {
+    release(env, 2);
+    await env.cycle({ transport });
+    assert.match(notes.at(-1), /parked after 3 attempts/);
+    assert.match(env.log(), /parked/);
+  } finally {
+    env.close();
+  }
+});

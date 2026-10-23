@@ -260,6 +260,17 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
    * page. A pending gate gets its summary and its full keyboard back; a decided one gets the summary with the
    * result line and no buttons.
    */
+  /** One line for the operator with no decision attached: a run that died, a head that got parked. */
+  async function notify(text) {
+    const sent = await call("sendMessage", {
+      chat_id: chatId,
+      text: String(text).slice(0, TELEGRAM_TEXT_LIMIT),
+      disable_web_page_preview: true,
+      disable_notification: false,
+    });
+    return sent?.message_id ?? null;
+  }
+
   async function redraw(gate) {
     if (!gate?.channel_msg_id) return false;
     const comments = gate.review_id ? store.commentsFor(gate.review_id) : [];
@@ -285,5 +296,5 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
     return true;
   }
 
-  return { post, status, refreshControls, readDecisions, expire, call, redraw };
+  return { post, status, refreshControls, readDecisions, expire, call, redraw, notify };
 }

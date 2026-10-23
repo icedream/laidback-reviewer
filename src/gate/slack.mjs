@@ -128,6 +128,28 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
 
   const webhookUrl = () => (cfg._env ?? process.env)[slack.webhookUrlEnv] ?? "";
 
+  /** One line to the channel with no decision attached: a run that failed, a head that got parked. */
+  async function notify(text) {
+    if (slack.transport === "webhook") {
+      const url = webhookUrl();
+      if (!url) return false;
+      const response = await slackFetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({ text }),
+      });
+      return response.ok;
+    }
+    const channel = await resolveChannel();
+    if (!channel) return false;
+    const response = await slackFetch(`${apiBase}/chat.postMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8", Authorization: `Bearer ${token}`, ...(cookie ? { Cookie: `d=${cookie}` } : {}) },
+      body: JSON.stringify({ channel, text }),
+    });
+    return response.ok;
+  }
+
   async function post(gateId, summary, { reviewId = null } = {}) {
     if (slack.transport === "webhook") {
       // An incoming webhook can only talk, never listen: it cannot read a decision back, so the
@@ -288,5 +310,5 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
     return expired.length;
   }
 
-  return { post, readDecisions, expire, resolveChannel, call };
+  return { post, readDecisions, expire, resolveChannel, call, notify };
 }

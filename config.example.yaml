@@ -130,6 +130,8 @@ gate:
   beforeReview: false               # hold the task until approved, so no tokens are spent first
   beforePost: true                  # queue the composed review for approval before it is sent
   timeoutHours: 24
+  # A run that dies, or a head parked after too many attempts, is said out loud on the gate channel.
+  notifyFailures: true
   onTimeout: hold                   # hold = never post
   maxPending: 5
   pollIntervalMs: 10000             # how often a tap is read between discovery cycles (github.pollIntervalMs)

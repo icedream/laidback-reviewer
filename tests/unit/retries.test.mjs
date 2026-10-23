@@ -5,7 +5,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { openStore } from "../../src/proposal/store.mjs";
-import { backoffMs, clearFailure, failurePlan, recordFailure } from "../../src/proposal/retries.mjs";
+import { backoffMs, clearFailure, failureNote, failurePlan, recordFailure } from "../../src/proposal/retries.mjs";
+import { baseConfig } from "../helpers/run-env.mjs";
 
 const cfg = { reviews: { maxAttemptsPerHead: 4, retryBaseMs: 60_000, retryMaxMs: 3_600_000 } };
 const key = { owner: "example", repo: "orders-svc", pr: 143, head_sha: "a".repeat(40) };
@@ -109,4 +110,18 @@ test("a deferral remembers the session it stopped in", () => {
   } finally {
     store.close();
   }
+});
+
+test("a failure says what happened and what comes next", () => {
+  const cfg = baseConfig({ dir: "/tmp" });
+  cfg.reviews.maxAttemptsPerHead = 3;
+  const candidate = { owner: "acme", repo: "orders-svc", pr: 12, headSha: "abcdef0123456789", htmlUrl: "https://github.com/acme/orders-svc/pull/12" };
+
+  const retry = failureNote({ cfg, candidate, error: new Error("the inference server refused the connection"), plan: { attempts: 1, parked: false, nextTryAt: "2026-10-23T14:20:00.000Z" } });
+  assert.match(retry, /https:\/\/github\.com\/acme\/orders-svc\/pull\/12 head abcdef01/);
+  assert.match(retry, /inference server refused the connection/);
+  assert.match(retry, /attempt 2 of 3 at 14:20/);
+
+  const parked = failureNote({ cfg, candidate, error: new Error("golangci-lint could not be installed"), plan: { attempts: 3, parked: true, nextTryAt: "2026-10-23T14:20:00.000Z" } });
+  assert.match(parked, /parked after 3 attempts/);
 });

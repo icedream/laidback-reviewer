@@ -195,6 +195,8 @@ export const CONFIG_SCHEMA = record({
     beforeReview: bool({ def: false }),
     beforePost: bool({ def: true }),
     timeoutHours: integer({ def: 24, min: 1 }),
+    // A run that dies is the one thing an operator wants to hear about without reading a log.
+    notifyFailures: bool({ def: true }),
     onTimeout: enumerated(["hold", "skip"], { def: "hold" }),
     maxPending: integer({ def: 5, min: 1 }),
     // How often a waiting tap is read between discovery cycles. A decision should start the work in

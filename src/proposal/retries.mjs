@@ -53,3 +53,15 @@ export function recordFailure({ cfg, store, key, error, now = new Date(), log = 
 export function clearFailure({ store, key }) {
   store.clearFailure(key);
 }
+
+/**
+ * One line for the gate channel: what failed, on which head, and what the bot intends to do about it.
+ * The operator should not have to read the log to learn a review died.
+ */
+export function failureNote({ cfg, candidate, error, plan }) {
+  const reason = String(error?.message ?? error).slice(0, 200);
+  const next = plan.parked
+    ? `parked after ${plan.attempts} attempts, nothing more will run for this head`
+    : `attempt ${plan.attempts + 1} of ${cfg.reviews.maxAttemptsPerHead} at ${plan.nextTryAt.slice(11, 16)}`;
+  return `⚠ ${candidate.htmlUrl ?? `${candidate.owner}/${candidate.repo}#${candidate.pr}`} head ${String(candidate.headSha ?? "").slice(0, 8)}: review failed: ${reason}. ${next}.`;
+}
