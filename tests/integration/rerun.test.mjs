@@ -9,6 +9,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { requestRerun } from "../../src/gate/gate.mjs";
 import { setupReviewRun } from "../helpers/run-env.mjs";
 
 function reviewed(store) {
@@ -145,6 +146,27 @@ test("the command line can ask for another pass on a gate whose message has no c
     env.model.resetTurns();
     await env.cycle();
     assert.match(env.log(), /rerun .*: another pass requested by cli:operator/);
+  } finally {
+    env.close();
+  }
+});
+
+test("a held proposal is superseded when another pass is asked for", async () => {
+  const env = await setupReviewRun({ overrides: { reviews: { dryRun: false }, gate: { channel: "cli", beforeReview: false, beforePost: true } } });
+  try {
+    await env.cycle();
+    const [row] = reviewed(env.store);
+    const gate = env.store.latestGateFor({ owner: row.owner, repo: row.repo, pr: row.pr, stage: "before_post" });
+    env.store.decideGate({ id: gate.id, state: "held", decided_by: "telegram:1" });
+
+    requestRerun({ store: env.store, gate: env.store.getGate(gate.id), by: "cli", log: () => {} });
+    const settled = env.store.getGate(gate.id);
+    assert.equal(settled.state, "rejected");
+    assert.equal(settled.reason, "superseded by another pass");
+
+    env.model.resetTurns();
+    await env.cycle();
+    assert.equal(env.store.approvedUnpostedReviews().length, 0, "the superseded proposal cannot post behind the new pass");
   } finally {
     env.close();
   }

@@ -256,6 +256,11 @@ export function createStore(db) {
        WHERE owner = @owner AND repo = @repo AND pr = @pr AND kind LIKE @stage_prefix
        ORDER BY created_at DESC LIMIT 1`,
     ),
+    findHeadGates: db.prepare(
+      `SELECT * FROM gates
+       WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha AND kind LIKE @stage_prefix
+       ORDER BY created_at`,
+    ),
     getGate: db.prepare(`SELECT * FROM gates WHERE id = @id`),
     setSlackTs: db.prepare(`UPDATE gates SET slack_ts = @ts WHERE id = @id`),
     setCommentTs: db.prepare(`UPDATE gates SET comment_ts = @ts WHERE id = @id`),
@@ -402,6 +407,10 @@ export function createStore(db) {
     /** The most recent gate for that head and stage, whatever it decided. */
     latestGateFor({ owner, repo, pr, stage }) {
       return statements.findLatestGate.get({ owner, repo, pr, stage_prefix: `${stage}:%` });
+    },
+    /** Every gate this head has, newest stage last: what a rerun has to make unpostable. */
+    gatesForHead({ owner, repo, pr, head_sha, stage }) {
+      return statements.findHeadGates.all({ owner, repo, pr, head_sha, stage_prefix: `${stage}:%` });
     },
     getGate: (id) => statements.getGate.get({ id }),
     setSlackTs: ({ id, ts }) => statements.setSlackTs.run({ id, ts }),

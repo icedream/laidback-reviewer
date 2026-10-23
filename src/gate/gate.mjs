@@ -21,8 +21,12 @@
 export function requestRerun({ store, gate, by, log = () => {} }) {
   if (!gate?.owner || !gate?.head_sha) return null;
   store.requestRerun({ owner: gate.owner, repo: gate.repo, pr: gate.pr, head_sha: gate.head_sha, requested_by: by, gate_id: gate.id });
-  if (gate.state === "pending") {
-    store.decideGate({ id: gate.id, state: "rejected", decided_by: by, reason: "superseded by another pass" });
+  // Every post gate on this head that could still be approved: a pass held back yesterday would otherwise
+  // post next to the one being asked for now, and the older one is the one nobody would defend.
+  for (const held of store.gatesForHead({ owner: gate.owner, repo: gate.repo, pr: gate.pr, head_sha: gate.head_sha, stage: "before_post" })) {
+    if (held.state !== "pending" && held.state !== "held") continue;
+    store.decideGate({ id: held.id, state: "rejected", decided_by: by, reason: "superseded by another pass" });
+    if (held.id !== gate.id) log(`gate ${held.id} (${held.state}) rejected: superseded by another pass`);
   }
   log(`gate ${gate.id}: another pass requested for ${gate.owner}/${gate.repo}#${gate.pr} at ${gate.head_sha.slice(0, 8)} by ${by}`);
   return gate;
