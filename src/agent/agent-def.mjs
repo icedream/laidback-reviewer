@@ -73,6 +73,8 @@ export function nonInteractiveContract({ cfg, checkoutDir, prRef }) {
     "- Stay in the checkout and the scratch you were given. The bot's own directories (session transcripts,",
     "  its state) are not for a review to read, and lab job ids name things on the lab host with nothing to",
     "  inspect from here.",
+    "- A review that requests changes tells the author how to get it looked at again: one line asking them to",
+    "  re-request the review once the findings are addressed. Keep that line clear of the closing disclosure.",
     ...(cfg.banner?.mode === "authored" && (cfg.banner.prefix || cfg.banner.suffix)
       ? [
           "- The review body carries the disclosure itself, in your own words: restate it, never paste the",
