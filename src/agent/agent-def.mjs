@@ -68,6 +68,11 @@ export function nonInteractiveContract({ cfg, checkoutDir, prRef }) {
     "  the repo's .golangci.yml'. What stays out of the review is the runner and its limits: what the image",
     "  lacks, which hosts were unreachable, which credentials were missing. That belongs to the operator,",
     "  on the gate and in the log. A check you did not do is simply not claimed: write what you did check.",
+    "- Bound every command: give the bash tool a `timeout`, or wrap the work in `timeout 600 ...`. An",
+    "  unbounded command holds the review until its own wall clock gives out.",
+    "- Stay in the checkout and the scratch you were given. The bot's own directories (session transcripts,",
+    "  its state) are not for a review to read, and lab job ids name things on the lab host with nothing to",
+    "  inspect from here.",
     ...(cfg.banner?.mode === "authored" && (cfg.banner.prefix || cfg.banner.suffix)
       ? [
           "- The review body carries the disclosure itself, in your own words: restate it, never paste the",
