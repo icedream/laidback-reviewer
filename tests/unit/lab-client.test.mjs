@@ -6,6 +6,9 @@
  */
 
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { createLabClient, labEnabled, labGateRow } from "../../src/lab/client.mjs";
 import { baseConfig } from "../helpers/run-env.mjs";
@@ -97,4 +100,43 @@ test("the gate row says what ran, what it cost, and what came out", () => {
 
   const passed = labGateRow("run", { image: "postgres:16-alpine" }, { ok: true, exit: 0, stdout: "CREATE TABLE", image: "postgres:16-alpine", jobId: "j-13", durationMs: 4000, egress: "none" });
   assert.equal(passed.result, "pass");
+});
+
+test("what the call names is shipped by the harness, and what it does not own stops the call", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lab-stage-"));
+  fs.writeFileSync(path.join(dir, "migration.sql"), "CREATE TABLE orders (id int);");
+  const transport = recordingFetch();
+  const lab = createLabClient({ cfg: cfgWith(), env: {}, staging: { roots: [dir] }, fetchImpl: transport.fetchImpl });
+
+  const good = await lab.call("run", { image: "postgres:16-alpine", cmd: "psql -f /work/migration.sql", files: [path.join(dir, "migration.sql")] });
+  const sent = JSON.parse(transport.calls[0].init.body);
+  assert.deepEqual(sent.files, [{ path: "migration.sql", contents: "CREATE TABLE orders (id int);" }]);
+  assert.equal(good.ok, true);
+
+  // A check that runs with half its files would answer a different question than the review asked for.
+  const greedy = await lab.call("run", { image: "postgres:16-alpine", cmd: "id", files: [path.join(dir, "migration.sql"), "/etc/passwd"] });
+  assert.equal(greedy.ok, false);
+  assert.match(greedy.error, /not inside this run's scratch/);
+  assert.equal(transport.calls.length, 1, "the request was never sent");
+});
+
+test("a build context travels as a capped tarball", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lab-ctx-"));
+  fs.mkdirSync(path.join(dir, "ctx"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "ctx", "Dockerfile"), "FROM golang:1.26\nRUN go version\n");
+  fs.mkdirSync(path.join(dir, "ctx", ".git"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "ctx", ".git", "HEAD"), "ref: refs/heads/main");
+
+  const transport = recordingFetch();
+  const lab = createLabClient({ cfg: cfgWith(), env: {}, staging: { roots: [dir] }, fetchImpl: transport.fetchImpl });
+  await lab.call("build", { dockerfile: "Dockerfile", context: path.join(dir, "ctx") });
+
+  const sent = JSON.parse(transport.calls[0].init.body);
+  assert.ok(sent.contextTar?.length > 20, "a tarball, not a path the daemon cannot read");
+  const packed = Buffer.from(sent.contextTar, "base64");
+  assert.equal(packed[0], 0x1f, "gzip magic");
+  assert.ok(!packed.subarray(0, Math.min(packed.length, 4000)).includes(Buffer.from(".git/HEAD")), "the repository's git dir is not shipped");
+
+  const outside = await lab.call("build", { dockerfile: "Dockerfile", context: "/etc" });
+  assert.match(outside.error, /not inside this run's scratch/);
 });

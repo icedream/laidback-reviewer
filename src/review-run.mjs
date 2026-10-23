@@ -150,7 +150,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   // not discovering the write boundary by hitting it. The toolchain install dir is included because a
   // repository that pins a version the image does not carry has to be able to fetch it itself.
   const writableRoots = [cfg.checkout.scratch, cfg.toolchain.installDir, compareDir, "/tmp"];
-  const labClient = createLabClient({ cfg, log });
+  const labClient = createLabClient({ cfg, staging: { roots: [cfg.checkout.scratch] }, log });
   if (labClient) log(`lab ${cfg.lab.url}: egress ${cfg.lab.egress}, ${cfg.lab.cpus} cpus, ${cfg.lab.memoryMb} MB, ${cfg.lab.concurrency} job(s) at a time`);
   const guard = createReviewGuard({
     allowHosts: cfg.tools.allowHosts,

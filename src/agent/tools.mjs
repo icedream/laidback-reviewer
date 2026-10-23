@@ -9,7 +9,8 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { nearDuplicate } from "../proposal/dedupe.mjs";
-import { LAB_ACTIONS, labGateRow } from "../lab/client.mjs";
+import { LAB_ACTIONS } from "../lab/actions.mjs";
+import { labGateRow } from "../lab/client.mjs";
 
 export function createProposalCollector() {
   return {
@@ -167,6 +168,8 @@ export function createReviewTools({ collector, limits = {}, lab = null }) {
           dockerfile: Type.Optional(Type.String({ description: "Dockerfile path among the files shipped in" })),
           cmd: Type.Optional(Type.String({ description: "Command to run inside, as a shell line" })),
           files: Type.Optional(Type.Array(Type.String(), { description: "Paths from this run's scratch tree to copy in, read-only" })),
+          context: Type.Optional(Type.String({ description: "Directory from this run's scratch tree to send as the build context" })),
+          container: Type.Optional(Type.String({ description: "Container name within this job, for exec and logs" })),
           label: Type.Optional(Type.String({ description: "What this check is for, in a few words" })),
         }),
         async execute(_id, params) {
@@ -176,6 +179,8 @@ export function createReviewTools({ collector, limits = {}, lab = null }) {
             dockerfile: params.dockerfile,
             cmd: params.cmd,
             files: params.files,
+            context: params.context,
+            container: params.container,
             label: params.label,
           });
           const row = labGateRow(params.action, params, result);
