@@ -20,7 +20,7 @@ const STATE_DB = process.env.LAIDBACK_STATE_DB || "data/state.db";
 
 function usage(message) {
   if (message) console.error(message);
-  console.error("usage: node src/cli/gate.mjs list | sync | show <id> | approve <id> | reject <id> [reason] | hold <id> | rerun <id> | controls");
+  console.error("usage: node src/cli/gate.mjs list | sync | show <id> | approve <id> | reject <id> [reason] | hold <id> | rerun <id> | controls | redraw [id] [limit]");
   process.exit(message ? 1 : 0);
 }
 
@@ -77,6 +77,28 @@ async function main() {
     const refreshed = await transport.refreshControls();
     console.log(`${refreshed} waiting gate message(s) brought up to date`);
     process.exit(0);
+  }
+
+  if (command === "redraw") {
+    // Rebuilds gate messages from the store, which puts right a message an earlier build left on a finding
+    // page. Pass an id to fix one message, nothing to fix every message the bot still holds.
+    const cfg = loadConfig();
+    const transport = gateTransportFromConfig({ cfg, store, log: (line) => console.log(line) });
+    if (!transport?.redraw) usage("redraw rewrites the channel's messages: it needs gate.channel configured, and a channel that can edit messages");
+    const gates = id ? [store.getGate(id)].filter(Boolean) : store.gatesWithMessages({ limit: Number(rest[0] ?? 100) });
+    let done = 0;
+    for (const gate of gates) {
+      try {
+        if (await transport.redraw(gate)) {
+          done += 1;
+          console.log(`gate ${gate.id} ${gate.state} redrawn on message ${gate.channel_msg_id}`);
+        }
+      } catch (error) {
+        console.error(`gate ${gate.id} could not be redrawn: ${error.message}`);
+      }
+    }
+    console.log(`${done} gate message(s) redrawn`);
+    return;
   }
 
   if (command === "rerun") {

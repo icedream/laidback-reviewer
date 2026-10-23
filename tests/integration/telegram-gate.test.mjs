@@ -205,6 +205,35 @@ test("deciding while a finding is open brings the summary back", async () => {
   }
 });
 
+test("redraw puts a message left on a finding page back to the review", async () => {
+  const f = await fixture();
+  try {
+    f.telegram.tap(`fw:${f.opened.gateId}:1`);
+    await f.gateTransport.readDecisions();
+    assert.match(f.telegram.messages.at(-1).text, /<b>Finding 2 of 2<\/b>/);
+
+    // Held by a build that settled messages by reusing the page on screen, so the fix is applied by hand.
+    f.store.decideGate({ id: f.opened.gateId, state: "held", decided_by: "telegram:4242 @decider" });
+    const gate = f.store.getGate(f.opened.gateId);
+    assert.equal(await f.gateTransport.redraw(gate), true);
+
+    const redrawn = f.telegram.messages.at(-1);
+    assert.match(redrawn.text, /Model verdict: request_changes/);
+    assert.doesNotMatch(redrawn.text, /Finding 2 of 2/);
+    assert.match(redrawn.text, /<b>held<\/b> by telegram:4242 @decider/);
+    assert.deepEqual(redrawn.reply_markup.inline_keyboard, [], "a decided gate keeps no buttons");
+
+    // A gate still waiting gets its controls back as well as its text.
+    f.store.decideGate({ id: f.opened.gateId, state: "pending", decided_by: null });
+    assert.equal(await f.gateTransport.redraw(f.store.getGate(f.opened.gateId)), true);
+    const waiting = f.telegram.messages.at(-1);
+    assert.deepEqual(waiting.reply_markup.inline_keyboard[0].map((b) => b.callback_data), [`ap:${f.opened.gateId}`, `rj:${f.opened.gateId}`, `hd:${f.opened.gateId}`]);
+    assert.equal(waiting.text.split("\n").filter((line) => /^\d+\./.test(line)).length, 2);
+  } finally {
+    f.cleanup();
+  }
+});
+
 test("a tap on a message whose gate is gone is answered, not edited into nothing", async () => {
   const f = await fixture();
   try {

@@ -261,6 +261,7 @@ export function createStore(db) {
     setCommentTs: db.prepare(`UPDATE gates SET comment_ts = @ts WHERE id = @id`),
     setChannelMsgId: db.prepare(`UPDATE gates SET channel_msg_id = @msg_id WHERE id = @id`),
     pendingGates: db.prepare(`SELECT * FROM gates WHERE state = 'pending' ORDER BY created_at`),
+    gatesWithMessages: db.prepare(`SELECT * FROM gates WHERE channel_msg_id IS NOT NULL ORDER BY created_at DESC LIMIT @limit`),
     requestRerun: db.prepare(
       `INSERT OR REPLACE INTO reruns (owner, repo, pr, head_sha, requested_at, requested_by, gate_id, consumed_at)
        VALUES (@owner, @repo, @pr, @head_sha, @now, @requested_by, @gate_id, NULL)`,
@@ -414,6 +415,8 @@ export function createStore(db) {
     /** Replies the gate itself posted, so reading a thread never mistakes one for a decision. */
     recordCommentTs: ({ id, tsList }) => statements.setCommentTs.run({ id, ts: JSON.stringify(tsList) }),
     pendingGates: () => statements.pendingGates.all(),
+    /** Gates whose message still sits in the channel, newest first: what a redraw can reach. */
+    gatesWithMessages: ({ limit = 100 } = {}) => statements.gatesWithMessages.all({ limit }),
     gatesForReview: (reviewId) => statements.gatesForReview.all({ review_id: reviewId }),
     /** Composed reviews whose gate an admin approved but which were never sent. */
     approvedUnpostedReviews: () =>

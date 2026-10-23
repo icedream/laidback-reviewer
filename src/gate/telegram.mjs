@@ -255,5 +255,35 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
     return expirePending({ cfg, store, log, kindSuffix: ":telegram" });
   }
 
-  return { post, status, refreshControls, readDecisions, expire, call };
+  /**
+   * Rebuilds a message from what the store holds, which fixes a message an earlier build left on the wrong
+   * page. A pending gate gets its summary and its full keyboard back; a decided one gets the summary with the
+   * result line and no buttons.
+   */
+  async function redraw(gate) {
+    if (!gate?.channel_msg_id) return false;
+    const comments = gate.review_id ? store.commentsFor(gate.review_id) : [];
+    const shown = comments.slice(0, telegram.maxFindingButtons);
+    const offersRerun = Boolean(gate.review_id) && telegram.rerunButton !== false;
+    let text = summaryHtml(gate.summary ?? "", { comments: shown, maxFindings: telegram.maxFindingButtons });
+    const keyboard = [];
+    if (gate.state === "pending") {
+      if (offersRerun) text += "\n\n↻ another pass runs a fresh review of this head and supersedes this proposal.";
+      keyboard.push(decisionRows(gate.id), ...findingRows(gate.id, shown.length));
+      if (offersRerun) keyboard.push(rerunRow(gate.id));
+    } else {
+      text += `\n\n<b>${gate.state}</b>${gate.decided_by ? ` by ${gate.decided_by}` : ""}`;
+    }
+    await call("editMessageText", {
+      chat_id: chatId,
+      message_id: Number(gate.channel_msg_id),
+      text: text.slice(0, TELEGRAM_TEXT_LIMIT),
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+      reply_markup: { inline_keyboard: keyboard },
+    });
+    return true;
+  }
+
+  return { post, status, refreshControls, readDecisions, expire, call, redraw };
 }
