@@ -115,6 +115,39 @@ test("Atlassian access stays read-only, including the verb-named generic calls",
   assert.match((await decide()("mcp", { server: "atlassian", action: "auth-start" })).reason, /cannot add MCP servers|drive OAuth/);
 });
 
+test("quoted text is data, not a command", async () => {
+  // Both of these blocked a live review: a grep pattern that mentions docker, and an echo that prints
+  // "gh auth", which took a legitimate git grep down with it.
+  const quotedData = [
+    ["a grep pattern naming docker", 'cd /work/scratch/x && grep -n "GO_ENV_ARGS\\|GOTOOLCHAIN\\|docker build\\|docker run" .build/scripts/crd-gen.sh | head -12'],
+    ["an echo that prints gh auth", 'cd /work/scratch/x && git grep -n "FROM golang" 1ea528f1 -- . | head; echo "=== gh auth ==="; gh auth status 2>&1 | head -5'],
+    ["a note quoting a denied verb", "cd /work/scratch/x && printf '%s\\n' 'go mod tidy would be needed here'"],
+    ["a format string with a quoted path", 'cd "/work/scratch/my dir" && git log -1 --format=\'%H %ci %s\''],
+  ];
+  for (const [label, command] of quotedData) {
+    const result = await run(command);
+    assert.equal(result, undefined, `${label}: ${result?.reason ?? "blocked"}`);
+  }
+});
+
+test("text the shell parses again is still judged as a command", async () => {
+  const hidden = [
+    'cd /work/scratch/x && bash -c "docker run -d postgres:16"',
+    "cd /work/scratch/x && sh -c 'podman build .'",
+    'cd /work/scratch/x && eval "kubectl delete pod orders"',
+    'cd /work/scratch/x && python3 -c "import subprocess; subprocess.run([\'git\',\'push\'])"',
+  ];
+  for (const command of hidden) {
+    const result = await run(command);
+    assert.ok(result, `expected a refusal for: ${command}`);
+  }
+
+  // The workspace exemption survives the trip through the quote: a tidy in a scratch copy is still a
+  // question about the PR.
+  const scratch = await run('cd /work/repos/acme/svc && bash -c "cd /tmp/copy && go mod tidy"');
+  assert.equal(scratch, undefined, scratch?.reason);
+});
+
 test("with the lab configured, the refusal names the door instead of just the wall", async () => {
   const without = await decide()("bash", { command: "cd /work/scratch/x && docker build -f Dockerfile ." });
   assert.match(without.reason, /deploy and remote-access tools are not available/);
