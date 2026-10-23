@@ -149,3 +149,25 @@ test("state is still tracked when the log stream is off", () => {
   assert.equal(seen.length, 1);
   assert.equal(progress.state.toolCalls, 1);
 });
+
+test("the heartbeat names the call that is still running", async () => {
+  const h = harness();
+  h.progress.handle({ type: "tool_execution_start", toolCallId: "t1", toolName: "bash", args: { command: "cd /work/scratch/x && go mod download -json github.com/osrg/gobgp/v4@v4.8.0" } });
+
+  h.advance(95_000);
+  await h.beat();
+  assert.match(h.lines.at(-1), /waiting on bash command=cd \/work\/scratch\/x && go mod download -json github\.com\/osrg\/gobgp\/v4@v4\.8\.0 running 95s, 1 tool call\(s\)/);
+  assert.match(h.progress.state.phase, /waiting on bash .* running 95s/, "the gate display reads the same state");
+
+  // A second call is counted, not described: the line stays short on a phone screen.
+  h.progress.handle({ type: "tool_execution_start", toolCallId: "t2", toolName: "bash", args: { command: "go test ./..." } });
+  h.advance(5_000);
+  await h.beat();
+  assert.match(h.lines.at(-1), /running 100s \(\+1 more\)/);
+
+  h.progress.handle({ type: "tool_execution_end", toolCallId: "t1", toolName: "bash" });
+  h.progress.handle({ type: "tool_execution_end", toolCallId: "t2", toolName: "bash" });
+  h.advance(20_000);
+  await h.beat();
+  assert.match(h.lines.at(-1), /still working: tool bash, 2 tool call\(s\)/);
+});
