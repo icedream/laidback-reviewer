@@ -10,7 +10,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { cleanupJob, createLabHandler, executePodman, jobName, planCommand, stageJob } from "../../src/lab/daemon.mjs";
+import { cleanupJob, createLabHandler, executePodman, jobName, planCommand,
+  hostEnv, stageJob } from "../../src/lab/daemon.mjs";
 
 const LIMITS = { cpus: 2, memoryMb: 1024, pids: 128, jobTimeoutMs: 5_000, concurrency: 1 };
 
@@ -213,4 +214,25 @@ test("a service is named for the session, and the same label finds it again", ()
   const other = planCommand({ action: "exec", params: { cmd: "gobgp global", container: "ribpeer" }, limits: LIMITS, jobDir: "/lab/j9", jobId: "job-c", session: "run-other" });
   assert.equal(other.argv[1], "lb-run-other-ribpeer", "another session's label cannot reach this one");
   assert.throws(() => planCommand({ action: "exec", params: { cmd: "id" }, limits: LIMITS, jobDir: "/lab/j9", jobId: "job-d", session: "run-7f3a" }), /needs the container label/);
+});
+
+test("podman keeps what rootless needs and nothing else", () => {
+  const saved = { ...process.env };
+  try {
+    process.env.XDG_DATA_HOME = "/var/lib/laidback-lab/containers";
+    process.env.XDG_RUNTIME_DIR = "/run/user/918";
+    process.env.HOME = "/home/lab";
+    process.env.LAIDBACK_LAB_TOKEN = "secret-token";
+    const passed = hostEnv();
+    assert.equal(passed.XDG_DATA_HOME, "/var/lib/laidback-lab/containers");
+    assert.equal(passed.XDG_RUNTIME_DIR, "/run/user/918");
+    assert.equal(passed.HOME, "/home/lab");
+    assert.ok(!("LAIDBACK_LAB_TOKEN" in passed), "the daemon's token never reaches the runtime");
+    assert.ok(!Object.values(passed).includes("secret-token"));
+  } finally {
+    for (const key of ["XDG_DATA_HOME", "XDG_RUNTIME_DIR", "HOME", "LAIDBACK_LAB_TOKEN"]) {
+      if (key in saved) process.env[key] = saved[key];
+      else delete process.env[key];
+    }
+  }
 });

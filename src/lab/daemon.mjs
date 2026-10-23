@@ -136,12 +136,25 @@ export function planCommand({ action, params, limits, egress = "registries", job
 }
 
 /** Runs one podman call, killing it at the wall clock the harness asked for. */
-export function executePodman({ binary = "podman", argv, cwd, timeoutMs = 600_000, stdinTar = null, env = {} }) {
+/**
+ * What a rootless podman needs from the daemon's own environment to find the invoking user's storage and
+ * runtime directories. Nothing else is passed on; a container's own variables travel as `-e` arguments.
+ */
+const HOST_ENV_KEYS = [
+  "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR",
+  "XDG_RUNTIME_DIR", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_CONFIG_HOME",
+  "CONTAINERS_STORAGE_CONF", "CONTAINERS_CONF", "XDG_REGISTRIES_CONFIG_HOME",
+];
+
+export const hostEnv = () =>
+  Object.fromEntries(HOST_ENV_KEYS.map((name) => [name, process.env[name]]).filter(([, value]) => value));
+
+export function executePodman({ binary = "podman", argv, cwd, timeoutMs = 600_000, stdinTar = null }) {
   return new Promise((resolve) => {
     const startedAt = Date.now();
     let child;
     try {
-      child = spawn(binary, argv, { cwd, env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: env.HOME ?? "/tmp", ...env }, stdio: ["pipe", "pipe", "pipe"] });
+      child = spawn(binary, argv, { cwd, env: { HOME: "/tmp", TMPDIR: "/tmp", ...hostEnv() }, stdio: ["pipe", "pipe", "pipe"] });
     } catch (error) {
       resolve({ exit: 127, stdout: "", stderr: `lab runtime could not be started: ${error.message}`, durationMs: 0 });
       return;
