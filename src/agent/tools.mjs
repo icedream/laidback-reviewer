@@ -161,7 +161,8 @@ export function createReviewTools({ collector, limits = {}, lab = null }) {
         label: "Run a check in the lab",
         description:
           "Build or run containers in the disposable lab for this review: a database to apply a migration against, a daemon to confirm protocol behaviour, a Dockerfile from the change to see whether it builds. " +
-          `The lab holds no credentials, allows egress of ${limits.lab?.egress ?? "registries"} only, and is destroyed after the run. Every call is recorded as a gate row.`,
+          `The lab holds no credentials, allows egress of ${limits.lab?.egress ?? "registries"} only, and is destroyed after the run. Every call is recorded as a gate row. ` +
+          "Staged files keep their path relative to the run's scratch root, so a file at <scratch>/labcheck/migration.sql is /work/labcheck/migration.sql inside the container. Stage them on the call that starts a service: an exec does not remount anything.",
         parameters: Type.Object({
           action: Type.String({ description: LAB_ACTIONS.join(" | ") }),
           image: Type.Optional(Type.String({ description: "Image to run, or to tag a build as" })),
