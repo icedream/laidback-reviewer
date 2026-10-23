@@ -9,6 +9,7 @@ import { createGithubClient } from "./github/client.mjs";
 import { describeScope } from "./github/scope.mjs";
 import { gateTransportFromConfig } from "./gate/transport.mjs";
 import { runLoop } from "./loop.mjs";
+import { createShutdown } from "./agent/shutdown.mjs";
 import { openStore } from "./proposal/store.mjs";
 
 function startupSummary({ cfg, store }) {
@@ -54,12 +55,18 @@ async function main() {
   startupSummary({ cfg, store });
 
   const stop = { current: false };
-  process.on("SIGINT", () => {
-    console.log("stopping after the current cycle");
+  const shutdown = createShutdown();
+  const drain = (signal) => {
+    // docker stop sends SIGTERM with a short grace period. Cancelling the pass in flight defers the head
+    // with its transcript and tree; being killed does not.
+    console.log(`${signal}: cancelling the pass in flight, then stopping`);
+    shutdown.request();
     stop.current = true;
-  });
+  };
+  process.on("SIGINT", () => drain("SIGINT"));
+  process.on("SIGTERM", () => drain("SIGTERM"));
 
-  await runLoop({ cfg, store, client, transport, stop });
+  await runLoop({ cfg, store, client, transport, stop, shutdown });
   store.close();
 }
 

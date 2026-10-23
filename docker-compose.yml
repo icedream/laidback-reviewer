@@ -8,6 +8,8 @@ services:
       - "host.docker.internal:host-gateway"
     user: ${UID:-1000}:${GID:-1000}
     restart: unless-stopped
+    # A pass in flight is cancelled and deferred on SIGTERM. Give it time to settle before the kill.
+    stop_grace_period: 75s
     env_file:
       - .env
     # Nothing from the host environment leaks in beyond .env. The git credential helper reads

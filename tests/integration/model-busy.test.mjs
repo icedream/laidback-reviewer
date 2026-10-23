@@ -9,6 +9,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { setupReviewRun } from "../helpers/run-env.mjs";
+import { createShutdown } from "../../src/agent/shutdown.mjs";
 
 const busyOverrides = { agent: { model: { probe: "status", deferMs: 90_000, busyRetries: 0 } } };
 
@@ -116,6 +117,25 @@ test("a deferral that never reached the prompt keeps the work worth resuming", a
     assert.equal(row.session_file, "/data/sessions/earlier.jsonl", "the transcript is still the one to fork");
     assert.equal(row.run_id, "keep0001", "and the tree is still the one to reuse");
   } finally {
+    env.close();
+  }
+});
+
+test("a restart cancels the pass in flight and defers the head with its pointers", async () => {
+  const env = await setupReviewRun({ modelDelay: () => 2000, context: {} });
+  const shutdown = createShutdown();
+  let timer = null;
+  try {
+    timer = setTimeout(() => shutdown.request(), 900);
+    await env.cycle({ shutdown });
+    const row = env.store.deferralFor(key(env));
+    assert.ok(row, "an interrupted head is set aside rather than dropped");
+    assert.ok(row.session_file, "the deferral names the transcript it stopped in");
+    assert.ok(row.run_id, "and the scratch tree it was working in");
+    assert.equal(env.store.getFailure(key(env)), undefined, "a restart does not burn an attempt on the head");
+    assert.match(env.log(), /shutdown requested: cancelling the pass in flight/);
+  } finally {
+    clearTimeout(timer);
     env.close();
   }
 });

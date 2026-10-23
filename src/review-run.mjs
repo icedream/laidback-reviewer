@@ -6,6 +6,7 @@
  */
 
 import fs from "node:fs";
+import path from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { loadAgentDef, nonInteractiveContract } from "./agent/agent-def.mjs";
 import { createReviewGuard } from "./agent/guard.mjs";
@@ -15,6 +16,7 @@ import { waitForMcpTools } from "./agent/mcp-settle.mjs";
 import { promptWithModelRetry } from "./agent/model-retry.mjs";
 import { modelServerStatus, resolveModelServer, slotOccupancy } from "./agent/model-server.mjs";
 import { ModelBusyError } from "./agent/run-watch.mjs";
+import { ReviewInterruptedError } from "./agent/shutdown.mjs";
 import { buildTaskPrompt } from "./agent/prompt.mjs";
 import { rephraseBanner } from "./agent/rephrase.mjs";
 import { REVIEW_TOOLS, createReviewSession } from "./agent/runtime.mjs";
@@ -59,7 +61,7 @@ export function toPrView(json, { owner, repo }) {
   };
 }
 
-export async function runReview({ cfg, store, client, task, piAgentDir, artifactDir, transport = null, log = console.error }) {
+export async function runReview({ cfg, store, client, task, piAgentDir, artifactDir, transport = null, shutdown = null, log = console.error }) {
   const { owner, repo, pr: prNumber, checkoutDir } = task;
   let approvedTaskGate = null;
 
@@ -282,21 +284,52 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     if (cfg.logging.level === "debug") {
       log(`debug: checkout ${checkoutDir}, comparison ${compareDir}, linter ${lint.mode}${lint.requestedVersion ? ` ${lint.requestedVersion}` : " (image)"}`);
     }
+    let interrupted = false;
+    // A session file is only named once a turn has been written, which is precisely when a cancel or a
+    // busy server strikes. The newest file in the session directory is this run's transcript: runs are
+    // serialised, and a resumed run keeps writing to the file it resumed.
+    const sessionFileNow = () =>
+      session.sessionManager?.getSessionFile?.()
+      ?? (() => {
+        const dir = cfg.context?.sessionDir;
+        if (!dir || !fs.existsSync(dir)) return null;
+        const names = fs.readdirSync(dir).filter((name) => name.endsWith(".jsonl"));
+        if (!names.length) return null;
+        return path.join(dir, names.sort().at(-1));
+      })();
+    const offShutdown = shutdown?.onAbort?.(() => {
+      interrupted = true;
+      log("shutdown requested: cancelling the pass in flight");
+      session.abort?.();
+    });
     try {
       busyRetriesUsed = await promptWithModelRetry({ session, cfg, collector, prompt, log, probe: modelProbe });
+      if (interrupted) throw new ReviewInterruptedError();
     } catch (error) {
+      if (interrupted || error?.name === "ReviewInterruptedError") {
+        // A pass cut short by a restart keeps its transcript and tree, so the next start resumes it
+        // instead of reviewing the head from scratch.
+        const interruption = new ReviewInterruptedError();
+        interruption.sessionFile = sessionFileNow();
+        interruption.runId = task.runId ?? null;
+        interruption.checkoutDir = checkoutDir;
+        await runStatus?.finish("paused", "the bot stopped mid-pass; the head is deferred and resumes this session");
+        throw interruption;
+      }
       if (error?.name !== "ModelBusyError") {
         await runStatus?.finish("failed", error?.message ?? String(error));
       }
       if (error?.name === "ModelBusyError") {
         // The loop defers the head, and the next pass resumes from this transcript only if the run hands
         // it over before unwinding.
-        error.sessionFile = session.sessionManager?.getSessionFile?.() ?? null;
+        error.sessionFile = sessionFileNow();
         error.runId = task.runId ?? null;
         error.checkoutDir = checkoutDir;
         await runStatus?.finish("paused", "the inference server is busy; the head is deferred and will resume this session");
       }
       throw error;
+    } finally {
+      offShutdown?.();
     }
   } finally {
     // A cancelled or failed turn must leave nothing armed: a heartbeat that outlives the run keeps the

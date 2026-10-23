@@ -20,6 +20,7 @@ export async function cycle({
   store,
   client,
   transport,
+  shutdown = null,
   piAgentDir = process.env.PI_CODING_AGENT_DIR ?? ".pi/agent",
   artifactDir = process.env.LAIDBACK_ARTIFACT_DIR ?? "data/reviews",
   log = (line) => console.log(line),
@@ -104,6 +105,7 @@ export async function cycle({
         store,
         client,
         transport,
+        shutdown,
         task: { owner: candidate.owner, repo: candidate.repo, pr: candidate.pr, checkoutDir: checkout.dir, compareDir: checkout.compareDir, runId: checkout.runId, reRequest: candidate.reRequest ?? null, requestTs: candidate.requestTs ?? null, rerun: candidate.rerun === true, skipTaskGate: candidate.rerun === true, resumeScratchKept: Boolean(deferral?.run_id && checkout.runId === deferral.run_id), resumeSessionFile: deferral?.session_file ?? candidate.resumeSessionFile ?? null, resumedAt: deferral?.until_at ?? candidate.resumedAt ?? "", resumeReason: deferral ? "interrupted" : candidate.rerun ? "rerun" : "", statusGateId: taskGate.gateId ?? null },
         piAgentDir,
         artifactDir,
@@ -114,10 +116,12 @@ export async function cycle({
       else if (result.posted) log(`    posted ${result.posted.state}: ${result.posted.html_url}`);
       else log(`    composed and stored, nothing posted (dry run ${result.dryRun}, gate ${result.gate?.state})`);
     } catch (error) {
-      if (error?.name === "ModelBusyError") {
+      if (error?.name === "ModelBusyError" || error?.name === "ReviewInterruptedError") {
         // Nothing about the PR went wrong, so the head is put back for later instead of burning an
         // attempt: a shared inference slot must not park a review that was never run.
-        const until = new Date(Date.now() + cfg.agent.model.deferMs).toISOString();
+        // A restart leaves the head due at once, so the next start picks it straight back up.
+        const delay = error?.name === "ReviewInterruptedError" ? 0 : cfg.agent.model.deferMs;
+        const until = new Date(Date.now() + delay).toISOString();
         // A pass cancelled before it reached the prompt has nothing new to point at, and overwriting the
         // pointers would drop the transcript and tree that are worth resuming.
         store.deferHead({
@@ -210,6 +214,7 @@ export async function runLoop({
   transport,
   stop = { current: false },
   runCycle = cycle,
+  shutdown = null,
   now = () => Date.now(),
   nap = sleep,
   gateTimer = intervalTimer,
@@ -275,7 +280,7 @@ export async function runLoop({
       });
     });
     try {
-      await runCycle({ cfg, store, client, transport });
+      await runCycle({ cfg, store, client, transport, shutdown });
     } catch (error) {
       console.error(`cycle failed: ${error.message}`);
     } finally {
