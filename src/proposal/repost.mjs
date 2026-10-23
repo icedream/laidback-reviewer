@@ -21,30 +21,41 @@ export async function postApprovedReview({ cfg, store, client, reviewId, log = (
     return { skipped: "gate_not_approved", gates: gates.map((gate) => `${gate.id}:${gate.state}`) };
   }
 
-  const pr = await client.getPull(row.owner, row.repo, row.pr);
-  const currentHead = pr.head.sha;
-  if (currentHead !== row.head_sha) {
-    log(`head moved ${row.head_sha.slice(0, 8)} → ${currentHead.slice(0, 8)} since the review was composed; re-anchoring`);
+  // Taken before any network work: an approval handled between cycles and the same approval seen by the
+  // next cycle's pass would otherwise post the review twice. Releasing the claim on failure reopens that
+  // window if GitHub accepted the submit and the response was lost, which is the lesser fault against a
+  // review that never posts.
+  if (!store.claimForPost({ id: reviewId })) return { skipped: "posting_elsewhere" };
+  let handedOff = false;
+  try {
+    const pr = await client.getPull(row.owner, row.repo, row.pr);
+    const currentHead = pr.head.sha;
+    if (currentHead !== row.head_sha) {
+      log(`head moved ${row.head_sha.slice(0, 8)} → ${currentHead.slice(0, 8)} since the review was composed; re-anchoring`);
+    }
+    const files = await client.listFiles(row.owner, row.repo, row.pr);
+
+    const proposal = {
+      comments: store.commentsFor(reviewId).map((comment) => ({
+        path: comment.path,
+        line: comment.line,
+        ...(comment.start_line ? { start_line: comment.start_line } : {}),
+        body: comment.body,
+      })),
+      body: row.proposed_body ?? row.body ?? "",
+      verdict: row.verdict,
+      blocking: JSON.parse(row.blocking ?? "[]"),
+    };
+
+    const composed = composeReview({ proposal, cfg, files, headSha: currentHead, owner: row.owner, repo: row.repo });
+    const posted = await submitReview({ client, owner: row.owner, repo: row.repo, pr: row.pr, payload: composed.payload, expectedHeadSha: currentHead });
+    store.markPosted({ id: reviewId, github_review_id: posted.id, html_url: posted.html_url });
+    handedOff = true;
+    log(`posted ${posted.state} on ${row.owner}/${row.repo}#${row.pr}: ${posted.html_url}`);
+    return { posted, composed };
+  } finally {
+    if (!handedOff) store.releasePostClaim({ id: reviewId });
   }
-  const files = await client.listFiles(row.owner, row.repo, row.pr);
-
-  const proposal = {
-    comments: store.commentsFor(reviewId).map((comment) => ({
-      path: comment.path,
-      line: comment.line,
-      ...(comment.start_line ? { start_line: comment.start_line } : {}),
-      body: comment.body,
-    })),
-    body: row.proposed_body ?? row.body ?? "",
-    verdict: row.verdict,
-    blocking: JSON.parse(row.blocking ?? "[]"),
-  };
-
-  const composed = composeReview({ proposal, cfg, files, headSha: currentHead, owner: row.owner, repo: row.repo });
-  const posted = await submitReview({ client, owner: row.owner, repo: row.repo, pr: row.pr, payload: composed.payload, expectedHeadSha: currentHead });
-  store.markPosted({ id: reviewId, github_review_id: posted.id, html_url: posted.html_url });
-  log(`posted ${posted.state} on ${row.owner}/${row.repo}#${row.pr}: ${posted.html_url}`);
-  return { posted, composed };
 }
 
 /** Approvals that arrived since the last cycle and have not been acted on. */

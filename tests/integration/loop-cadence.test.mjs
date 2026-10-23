@@ -39,7 +39,7 @@ function harness({ pollIntervalMs = 60_000, gatePollMs = 5_000 } = {}) {
 
 test("a tap landing between cycles runs the next cycle at once", async () => {
   const h = harness();
-  await runLoop({ cfg: h.cfg, store: {}, client: {}, transport: h.transport, stop: h.stop, runCycle: h.runCycle, now: h.clock, nap: h.nap });
+  await runLoop({ cfg: h.cfg, store: { approvedUnpostedReviews: () => [] }, client: {}, transport: h.transport, stop: h.stop, runCycle: h.runCycle, now: h.clock, nap: h.nap });
 
   assert.equal(h.cycleAt.length, 2, "the tap triggered a follow-up cycle");
   assert.ok(h.cycleAt[1] <= 5_000, `second cycle ran at ${h.cycleAt[1]}ms; expected within the gate poll interval, not at ${h.cfg.github.pollIntervalMs}ms`);
@@ -52,7 +52,7 @@ test("an unanswered gate does not add cycles, and no transport means no polling"
   let cycles = 0;
   await runLoop({
     cfg: { github: { pollIntervalMs: 30_000 }, gate: { pollIntervalMs: 5_000 } },
-    store: {},
+    store: { approvedUnpostedReviews: () => [] },
     client: {},
     transport: { expire: () => 0, readDecisions: async () => [] },
     stop: stopAfter,
@@ -70,7 +70,7 @@ test("an unanswered gate does not add cycles, and no transport means no polling"
   let ran = 0;
   await runLoop({
     cfg: none.cfg,
-    store: {},
+    store: { approvedUnpostedReviews: () => [] },
     client: {},
     transport: null,
     stop: none.stop,
@@ -82,4 +82,46 @@ test("an unanswered gate does not add cycles, and no transport means no polling"
     nap: none.nap,
   });
   assert.equal(ran, 1, "a run with no gate transport still cycles once and stops");
+});
+
+test("a tap pressed while a review is running is read before that review finishes", async () => {
+  const cfg = { github: { pollIntervalMs: 60_000 }, gate: { pollIntervalMs: 5_000 } };
+  const stop = { current: false };
+  const reads = [];
+  let inFlight = false;
+  let releaseCycle = null;
+
+  const transport = {
+    expire: () => 0,
+    readDecisions: async () => {
+      reads.push(inFlight);
+      if (inFlight) releaseCycle();
+      return [];
+    },
+  };
+  const runCycle = () =>
+    new Promise((resolve) => {
+      inFlight = true;
+      releaseCycle = () => {
+        inFlight = false;
+        resolve();
+      };
+      stop.current = true;
+    });
+
+  // A real timer, because the point is that the gate is read while the cycle's own await is still open.
+  await runLoop({
+    cfg,
+    store: { approvedUnpostedReviews: () => [] },
+    client: { getPull: async () => { throw new Error("must not be reached"); } },
+    transport,
+    stop,
+    runCycle,
+    gateTimer: (ms, fn) => {
+      const timer = setTimeout(fn, 0);
+      return () => clearTimeout(timer);
+    },
+  });
+
+  assert.ok(reads.includes(true), `the gate was only read at cycle boundaries: ${JSON.stringify(reads)}`);
 });

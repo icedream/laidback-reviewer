@@ -141,7 +141,7 @@ export function openStore(path) {
       // present already
     }
   }
-  for (const column of ["session_file TEXT", "branch TEXT", "stack_key TEXT", "checkout_dir TEXT"]) {
+  for (const column of ["session_file TEXT", "branch TEXT", "stack_key TEXT", "checkout_dir TEXT", "posting_at TEXT"]) {
     try {
       db.exec(`ALTER TABLE reviews ADD COLUMN ${column}`);
     } catch {
@@ -181,9 +181,17 @@ export function createStore(db) {
        VALUES (@review_id, @path, @start_line, @line, @body, @note)`,
     ),
     markPosted: db.prepare(
-      `UPDATE reviews SET posted = 1, github_review_id = @github_review_id, html_url = @html_url, updated_at = @now
+      `UPDATE reviews SET posted = 1, github_review_id = @github_review_id, html_url = @html_url, posting_at = NULL, updated_at = @now
        WHERE id = @id`,
     ),
+    // One claimer per review, so a tap handled between cycles and the same approval seen by the next cycle
+    // cannot post the review twice. A claim older than the re-anchor plus submit window is reclaimable: the
+    // process that took it is gone.
+    claimForPost: db.prepare(
+      `UPDATE reviews SET posting_at = @now
+       WHERE id = @id AND posted = 0 AND (posting_at IS NULL OR posting_at < @cutoff)`,
+    ),
+    releasePostClaim: db.prepare(`UPDATE reviews SET posting_at = NULL WHERE id = @id`),
     setArtifact: db.prepare(`UPDATE reviews SET artifact_path = @path, updated_at = @now WHERE id = @id`),
     setSession: db.prepare(`UPDATE reviews SET session_file = @session_file, branch = @branch, stack_key = @stack_key, checkout_dir = @checkout_dir, updated_at = @now WHERE id = @id`),
     recentReviews: db.prepare(
@@ -410,6 +418,14 @@ export function createStore(db) {
     /** Composed reviews whose gate an admin approved but which were never sent. */
     approvedUnpostedReviews: () =>
       db.prepare(`SELECT DISTINCT r.id FROM reviews r JOIN gates g ON g.review_id = r.id WHERE r.posted = 0 AND g.state = 'approved'`).all().map((row) => row.id),
+    /** Takes the single posting claim for a review. False means another pass has it or already posted it. */
+    claimForPost({ id, staleAfterMs = 10 * 60 * 1000 }) {
+      const cutoff = new Date(Date.now() - staleAfterMs).toISOString();
+      return statements.claimForPost.run({ id, now: now(), cutoff }).changes === 1;
+    },
+    releasePostClaim({ id }) {
+      statements.releasePostClaim.run({ id });
+    },
     decideGate({ id, state, decided_by, reason = null }) {
       statements.decideGate.run({ id, state, decided_by, reason, now: now() });
       return statements.getGate.get({ id });
