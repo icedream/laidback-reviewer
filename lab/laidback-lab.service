@@ -9,9 +9,9 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/node /opt/laidback-reviewer/src/lab/daemon.mjs --port 9443 --host 127.0.0.1 --workspace /var/lib/laidback-lab --egress registries --cpus 4 --memory 4096 --pids 512 --timeout-ms 600000 --concurrency 1
+ExecStart=/usr/bin/node /opt/laidback-reviewer/src/lab/daemon.mjs --port 9443 --host 127.0.0.1 --workspace /var/lib/laidback-lab --egress none --cpus 4 --memory 4096 --pids 512 --timeout-ms 600000 --concurrency 1
 Environment=LAIDBACK_LAB_WORKSPACE=/var/lib/laidback-lab
-Environment=LAIDBACK_LAB_EGRESS=registries
+Environment=LAIDBACK_LAB_EGRESS=none
 Environment=LAIDBACK_LAB_PROXY=http://host.containers.internal:3128
 # Readable by the bot and by the lab user, and by nobody else.
 EnvironmentFile=/etc/laidback/lab.env
