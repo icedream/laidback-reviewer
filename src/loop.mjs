@@ -156,18 +156,26 @@ export async function cycle({
         outcome = "parked";
       } else {
         const prJson = await client.getPull(row.owner, row.repo, row.pr);
-        if (prJson.head.sha !== row.head_sha) {
-          log(`  rerun ${row.owner}/${row.repo}#${row.pr}: the head moved to ${prJson.head.sha.slice(0, 8)}, the request for ${row.head_sha.slice(0, 8)} is dropped`);
-          outcome = "moved";
+        const headSha = prJson.head.sha;
+        const key2 = { owner: row.owner, repo: row.repo, pr: row.pr, head_sha: headSha };
+        // A pull request that gained commits since the request is not a reason to do nothing: the request
+        // is for another pass over this pull request, and the only head worth passing over is the current
+        // one. Repositories where CODEOWNERS holds the review pending cannot produce a new request event,
+        // so dropping here means the new head is never reviewed at all.
+        const headSeen = headSha === row.head_sha ? seen : store.seenFor(key2);
+        if (headSeen && headSeen.rereviews >= cfg.reviews.maxReReviewsPerHead) {
+          log(`  rerun ${row.owner}/${row.repo}#${row.pr}: ${headSeen.rereviews} passes over ${headSha.slice(0, 8)} already, the ceiling is ${cfg.reviews.maxReReviewsPerHead}`);
+          outcome = "parked";
         } else {
-          const prior = store.reviewFor(key);
-          const priorSession = store.latestSessionFor(key);
+          if (headSha !== row.head_sha) log(`  rerun ${row.owner}/${row.repo}#${row.pr}: the head moved to ${headSha.slice(0, 8)} since the request, that is what gets the new pass`);
+          const prior = store.reviewFor(key2);
+          const priorSession = store.latestSessionFor(key2) ?? (headSha === row.head_sha ? null : store.latestSessionFor(key));
           log(`  rerun ${prJson.html_url}: another pass requested by ${row.requested_by} at ${row.requested_at.slice(0, 16)}${priorSession ? `, continuing from the ${priorSession.created_at.slice(11, 16)} pass` : " from scratch"}`);
           outcome = await handleCandidate({
             owner: row.owner,
             repo: row.repo,
             pr: row.pr,
-            headSha: row.head_sha,
+            headSha,
             headRef: prJson.head.ref,
             htmlUrl: prJson.html_url,
             reason: "another pass requested at the gate",

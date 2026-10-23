@@ -47,18 +47,20 @@ test("a rerun request runs a fresh pass over the same head", async () => {
   }
 });
 
-test("a rerun whose head moved is dropped, not run against a different commit", async () => {
+test("a rerun whose head moved runs a pass over the new head", async () => {
   const env = await setupReviewRun();
   try {
     await env.cycle();
     const [row] = reviewed(env.store);
     env.store.requestRerun({ owner: row.owner, repo: row.repo, pr: row.pr, head_sha: row.head_sha, requested_by: "telegram:1", gate_id: null });
     env.github.setHead("ffffffffffffffffffffffffffffffffffffffff");
+    env.model.resetTurns();
 
     await env.cycle();
-    assert.equal(reviewed(env.store).length, 1, "no pass over the moved head");
-    assert.deepEqual(env.store.pendingReruns(), [], "the stale request is consumed");
-    assert.match(env.log(), /the head moved to ffffffff, the request for .* is dropped/);
+    const heads = reviewed(env.store).map((r) => r.head_sha.slice(0, 8)).sort();
+    assert.deepEqual(heads, [row.head_sha.slice(0, 8), "ffffffff"], "the pass lands on the head that exists now");
+    assert.deepEqual(env.store.pendingReruns(), [], "the request is consumed");
+    assert.match(env.log(), /the head moved to ffffffff since the request, that is what gets the new pass/);
   } finally {
     env.close();
   }
