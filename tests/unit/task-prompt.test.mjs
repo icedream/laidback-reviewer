@@ -201,7 +201,10 @@ test("the prompt names what the image lacks and what the credential can read", (
   });
   assert.match(prompt, /There is no container runtime, database server, kubectl, helm,/);
   assert.match(prompt, /do not spend a turn testing whether they exist/);
-  assert.match(prompt, /say in the review\s*that it was not executed/);
+  assert.match(prompt, /you may name in the review what you ran and against which/);
+  assert.match(prompt, /What stays out is this runner and its limits/);
+  assert.match(prompt, /which credentials were missing/);
+  assert.match(prompt, /the shell has no default time limit/);
   assert.match(prompt, /uses: <org>\/<repo>\/\.\.\.@<ref>` names the repository and the ref/);
   assert.match(prompt, /This credential reads the organisation's private repositories/);
   assert.match(prompt, /git tag --sort=-creatordate/);

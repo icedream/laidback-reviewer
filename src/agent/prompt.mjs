@@ -50,8 +50,12 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, r
         `tool policy and lands in the harness notes, so do not spend a turn probing it. Never write`,
         `inside the checkout itself. There is no container runtime, database server, kubectl, helm,`,
         `terraform or ssh in this image at all: do not spend a turn testing whether they exist. Run what`,
-        `the project's own toolchain runs, and where a claim would need a live service, say in the review`,
-        `that it was not executed.`,
+        `the project's own toolchain runs, and you may name in the review what you ran and against which`,
+        `version: that is evidence about the pull request. What stays out is this runner and its limits,`,
+        `what it lacks, which hosts were unreachable, which credentials were missing: the harness reports`,
+        `those to the operator on the gate. A check you did not do is not claimed and not explained away.`,
+        `And bound anything that can block on the network, the shell has no default time limit: write`,
+        `'timeout 120 curl ...' or 'timeout 300 go mod download ...'.`,
       ].join("\n"),
     );
   }

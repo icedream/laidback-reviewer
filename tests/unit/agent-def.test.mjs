@@ -18,6 +18,15 @@ test("the contract keeps the rule about what is already on the PR", () => {
   assert.doesNotMatch(text, /Ignore section 9/);
 });
 
+test("the contract keeps the runner out of the review text", () => {
+  const cfg = { reviews: { dryRun: true, approve: "hint", requestChanges: "submit" }, agent: {}, banner: { mode: "appended", prefix: "", suffix: "" } };
+  const text = JSON.stringify(nonInteractiveContract({ cfg, checkoutDir: "/work/x", prRef: { repository: "acme/svc", number: 7 } }));
+  assert.match(text, /Name the tools you ran as evidence/);
+  assert.match(text, /What stays out of the review is the runner and its limits/);
+  assert.match(text, /which hosts were unreachable/);
+  assert.match(text, /A check you did not do is simply not claimed/);
+});
+
 test("the contract tells the review which notice opens and which closes", () => {
   const cfg = { reviews: { dryRun: true, approve: "hint", requestChanges: "submit" }, agent: {}, banner: { mode: "authored", prefix: "I am on leave this week, the bot answers meanwhile.", suffix: "Reply in the thread if you would like a human to look again." } };
   const text = JSON.stringify(nonInteractiveContract({ cfg, checkoutDir: "/work/x", prRef: { repository: "acme/svc", number: 7 } }));
