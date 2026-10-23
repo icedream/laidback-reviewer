@@ -75,6 +75,9 @@ export function nonInteractiveContract({ cfg, checkoutDir, prRef }) {
     "  inspect from here.",
     "- A review that requests changes tells the author how to get it looked at again: one line asking them to",
     "  re-request the review once the findings are addressed. Keep that line clear of the closing disclosure.",
+    "- A rule you applied is cited by where the author can read it: the repository's own contributing guide, a",
+    "  linked standard, or the upstream package. Never name an internal review skill or a harness file the",
+    "  author cannot open. If there is no such link, state the rule and move on.",
     ...(cfg.banner?.mode === "authored" && (cfg.banner.prefix || cfg.banner.suffix)
       ? [
           "- The review body carries the disclosure itself, in your own words: restate it, never paste the",
