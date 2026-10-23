@@ -49,9 +49,9 @@ async function main() {
   }
 
   // These work over every gate the bot holds, so they are the commands that do not need an id.
-  if (!id && !["list", "sync", "controls", "redraw"].includes(command)) usage("a gate id is required");
-  const gate = store.getGate(id);
-  if (!gate) usage(`no gate ${id}`);
+  const needsGate = !["list", "sync", "controls", "redraw"].includes(command);
+  const gate = needsGate ? store.getGate(id) : null;
+  if (needsGate && !gate) usage(id ? `no gate ${id}` : "a gate id is required");
 
   if (command === "show") {
     console.log(gate.summary);
@@ -73,6 +73,7 @@ async function main() {
   }
 
   if (command === "controls") {
+    const cfg = loadConfig();
     const transport = gateTransportFromConfig({ cfg, store, log: (line) => console.log(line) });
     if (!transport?.refreshControls) usage("only the slack and telegram channels post messages with controls to refresh");
     const refreshed = await transport.refreshControls();
