@@ -158,6 +158,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     writableRoots,
     checkoutDir,
     labEnabled: Boolean(labClient),
+    deniedPaths: [cfg.context?.sessionDir].filter(Boolean),
   });
 
   const contract = nonInteractiveContract({ cfg, checkoutDir, prRef: pr.repository });

@@ -156,3 +156,29 @@ test("with the lab configured, the refusal names the door instead of just the wa
   const withLab = await decide({ labEnabled: true })("bash", { command: "cd /work/scratch/x && docker build -f Dockerfile ." });
   assert.match(withLab.reason, /review_lab is the door for container checks/);
 });
+
+test("the bot's own records are out of bounds for a review", async () => {
+  const withRecords = decide({ deniedPaths: ["/data/sessions"] });
+  for (const command of [
+    "ls -la /data/sessions | head",
+    "grep -rn 'previous review' /data/sessions | head -5",
+    "cat /data/sessions/2026-10-23T13-25-35-328Z_01a168f0.jsonl | tail -3",
+  ]) {
+    const blocked = await withRecords("bash", { command });
+    assert.ok(blocked, `expected a block: ${command}`);
+    assert.match(blocked.reason, /holds the bot's own records/);
+  }
+  assert.equal(await withRecords("bash", { command: "cd /work/scratch/x && ls -la" }), undefined, "scratch stays open");
+  assert.ok(await withRecords("read", { path: "/data/sessions/anything.jsonl" }), "a read under the sessions root is refused too");
+  assert.equal(await withRecords("read", { path: "/work/repos/acme/svc/main.go" }), undefined);
+  // Without the configuration the policy is unchanged, which is what tests without it assume.
+  assert.equal(await decide()("bash", { command: "ls /data/sessions" }), undefined);
+});
+
+test("a review cannot dismantle the worktree it runs in", async () => {
+  const runnable = decide();
+  assert.ok(await runnable("bash", { command: "cd /work/scratch/x && git worktree remove --force /tmp/gf-review-333" }), "removing the review worktree is refused");
+  assert.ok(await runnable("bash", { command: "git worktree prune" }), "pruning harness worktrees is refused");
+  assert.equal(await runnable("bash", { command: "git worktree list" }), undefined, "listing them is a read");
+  assert.equal(await runnable("bash", { command: "git worktree add /tmp/copy HEAD~1" }), undefined, "a scratch copy is allowed");
+});

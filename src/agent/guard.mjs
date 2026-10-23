@@ -24,6 +24,9 @@ const BASH_DENY = [
   { re: /\bgh\s+pr\s+(merge|close|review|ready|rebase|comment)\b/, reason: "gh pr writes are not permitted; reviews go through the harness" },
   { re: /\bgh\s+(repo|release|workflow|run|secret|auth(?!\s+status)\b|extension)\b/, reason: "this gh subcommand is not permitted" },
   { re: /\bgh\s+api\b[^|;&]*(--input|-X\s*(POST|PUT|PATCH|DELETE)|--method\s+(POST|PUT|PATCH|DELETE))/, reason: "gh api writes are not permitted" },
+  // The harness creates and removes the worktree a review runs in. A review that cleans one up leaves the
+  // run with no checkout and the next cycle looking for a tree that is gone.
+  { re: /\bgit\s+worktree\s+(remove|prune|move)\b/, reason: "the harness owns the worktrees a review runs in", hint: "work in your own scratch directory" },
   { re: /(^|[|;&(]\s*)(sudo\s+)?(kubectl|helm|docker|podman|terraform|ansible|ssh|scp)\s/, reason: "deploy and remote-access tools are not available to a review run", hint: "review_lab is the door for container checks" },
   { re: /(^|[|;&(]\s*)(npm\s+publish|go\s+mod\s+(tidy|vendor)|pip\s+install|apt(-get)?\s+install)\b/, reason: "supply-chain and package-manager writes are not permitted" },
 ];
@@ -152,7 +155,7 @@ function atlassianToolName(toolName, input) {
   return "";
 }
 
-export function createReviewGuard({ allowHosts = [], bashEnabled = true, writableRoots = [], checkoutDir = "", labEnabled = false, log = [] } = {}) {
+export function createReviewGuard({ allowHosts = [], bashEnabled = true, writableRoots = [], checkoutDir = "", labEnabled = false, deniedPaths = [], log = [] } = {}) {
   const scratchOpts = { writableRoots, checkoutDir };
   const block = (record) => {
     log.push(record);
@@ -184,6 +187,12 @@ export function createReviewGuard({ allowHosts = [], bashEnabled = true, writabl
         if (recursiveDeleteDenied(runnable, scratchOpts)) {
           return block({ tool: "bash", command, reason: "a recursive delete may only remove paths inside the writable scratch roots" });
         }
+        // Session transcripts and bot state are the harness's own record. A review that goes looking in them
+        // spends turns on material it was already given as a digest.
+        const touchedDenied = deniedPaths.find((root) => root && command.includes(root));
+        if (touchedDenied) {
+          return block({ tool: "bash", command, reason: `${touchedDenied} holds the bot's own records, which a review does not read` });
+        }
         if (/\b(curl|wget)\b/.test(command)) {
           const reason = hostAllowDenied(command, allowHosts);
           if (reason) return block({ tool: "bash", command, reason });
@@ -203,6 +212,8 @@ export function createReviewGuard({ allowHosts = [], bashEnabled = true, writabl
 
       if (event.toolName === "read") {
         const filePath = String(input.path ?? "");
+        const denied = deniedPaths.find((root) => root && (filePath === root || filePath.startsWith(`${root.replace(/\/+$/, "")}/`)));
+        if (denied) return block({ tool: "read", path: filePath, reason: `${denied} holds the bot's own records, which a review does not read` });
         for (const rule of READ_DENY) {
           if (rule.re.test(filePath)) return block({ tool: "read", path: filePath, reason: rule.reason });
         }
