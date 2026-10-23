@@ -185,6 +185,26 @@ test("a numbered button opens that finding, and back restores the summary", asyn
   }
 });
 
+test("deciding while a finding is open brings the summary back", async () => {
+  const f = await fixture();
+  try {
+    f.telegram.tap(`fw:${f.opened.gateId}:1`);
+    await f.gateTransport.readDecisions();
+    assert.match(f.telegram.messages.at(-1).text, /<b>Finding 2 of 2<\/b>/);
+
+    f.telegram.tap(`ap:${f.opened.gateId}`, { from: { id: 4242, username: "decider" } });
+    await f.gateTransport.readDecisions();
+
+    const settled = f.telegram.messages.at(-1);
+    assert.match(settled.text, /Model verdict: request_changes/, "the message is the review again, not the finding");
+    assert.doesNotMatch(settled.text, /Finding 2 of 2/);
+    assert.match(settled.text, /<b>approved<\/b> by telegram:4242 @decider/);
+    assert.deepEqual(settled.reply_markup.inline_keyboard, [], "the buttons are gone once decided");
+  } finally {
+    f.cleanup();
+  }
+});
+
 test("a tap on a message whose gate is gone is answered, not edited into nothing", async () => {
   const f = await fixture();
   try {

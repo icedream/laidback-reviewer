@@ -104,11 +104,17 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
   async function settle(gateId, cb, state, decidedBy) {
     const gate = store.getGate(gateId);
     const banner = `\n\n<b>${state}</b> by ${decidedBy}`;
+    // The last page the reviewer saw may have been one finding. Redrawing the summary is what makes the
+    // result readable: reusing the callback's text leaves the message on that finding with no way back.
+    const comments = gate?.review_id ? store.commentsFor(gate.review_id) : [];
+    const text = gate
+      ? `${summaryHtml(gate.summary ?? "", { comments: comments.slice(0, telegram.maxFindingButtons), maxFindings: telegram.maxFindingButtons })}${banner}`
+      : `${String(cb.message.text ?? "").slice(0, TELEGRAM_TEXT_LIMIT - banner.length)}${banner}`;
     try {
       await call("editMessageText", {
         chat_id: cb.message.chat.id,
         message_id: cb.message.message_id,
-        text: `${String(cb.message.text ?? "").slice(0, TELEGRAM_TEXT_LIMIT - banner.length)}${banner}`,
+        text: text.slice(0, TELEGRAM_TEXT_LIMIT),
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
         reply_markup: { inline_keyboard: [] },
