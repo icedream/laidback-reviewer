@@ -535,7 +535,3 @@ policy, anchoring, verdict policy, banner with optional rephrasing, gate (Slack 
 per-run records, context pickup over persisted sessions (stack walk, fork or digest), failure
 spacing and parking, busy-model retries, per-repository linter versions, container setup, the
 fixture integration tests and the live smoke run.
-
-Not yet: the Atlassian credential strategy inside the container (mount an authenticated
-`mcp-auth.json`, or mint a bearer token), and a live run that shows a forked session making
-the second review better rather than just cheaper.
