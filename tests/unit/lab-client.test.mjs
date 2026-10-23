@@ -140,3 +140,24 @@ test("a build context travels as a capped tarball", async () => {
   const outside = await lab.call("build", { dockerfile: "Dockerfile", context: "/etc" });
   assert.match(outside.error, /not inside this run's scratch/);
 });
+
+test("a staged file may be named relative to the scratch root", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lab-relative-"));
+  fs.mkdirSync(path.join(dir, "lab333"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "lab333", "migcheck.sh"), "psql -f /work/lab333/migcheck.sql\n");
+  const transport = recordingFetch();
+  const lab = createLabClient({ cfg: cfgWith(), env: {}, staging: { roots: [dir] }, fetchImpl: transport.fetchImpl });
+
+  // The review stands in its checkout and names files as it sees them. Every form must reach the same
+  // path inside the container instead of bouncing as "not inside this run's scratch".
+  for (const name of ["lab333/migcheck.sh", "scratch/lab333/migcheck.sh", "./lab333/migcheck.sh", path.join(dir, "lab333", "migcheck.sh")]) {
+    await lab.call("run", { image: "postgres:16-alpine", cmd: "sh /work/lab333/migcheck.sh", files: [name] });
+    const sent = JSON.parse(transport.calls.at(-1).init.body);
+    assert.deepEqual(sent.files, [{ path: "lab333/migcheck.sh", contents: "psql -f /work/lab333/migcheck.sql\n" }], `naming it ${name} stages the same file`);
+  }
+
+  const outside = await lab.call("run", { image: "alpine", cmd: "id", files: ["../../etc/passwd"] });
+  assert.match(outside.error, /give it relative to/);
+  assert.equal(transport.calls.length, 4, "a path outside the scratch never reaches the lab");
+  fs.rmSync(dir, { recursive: true, force: true });
+});

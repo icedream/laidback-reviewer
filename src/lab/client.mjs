@@ -30,17 +30,37 @@ export function createLabClient({ cfg, env = process.env, staging = {}, log = ()
    * Read what the call names into the request, so the lab user never needs access to the run's tree.
    * Only paths under the run's own roots are staged, and the total is capped.
    */
+  /**
+   * A review names staged files from wherever it happens to be standing, so a path relative to its scratch
+   * tree is the common case. Try the name as given, then under each staging root, and keep only a result
+   * that stays inside a root.
+   */
+  function locate(name, mustExist = false) {
+    const roots = (staging.roots ?? []).map((root) => path.resolve(root));
+    const given = String(name);
+    const stripped = given.replace(/^\.?\/?scratch\//, "");
+    const candidates = [path.resolve(given), ...roots.map((root) => path.resolve(root, given))];
+    if (stripped !== given) candidates.push(...roots.map((root) => path.resolve(root, stripped)));
+    for (const candidate of candidates) {
+      const root = roots.find((each) => candidate === each || candidate.startsWith(`${each}/`));
+      if (!root) continue;
+      if (!mustExist || fs.existsSync(candidate)) return { path: candidate, root };
+    }
+    return null;
+  }
+
   function stage(files = [], context = "") {
     const roots = staging.roots ?? [];
     const staged = [];
     const refused = [];
     let total = 0;
     for (const name of files) {
-      const resolved = path.resolve(String(name));
-      if (!roots.some((root) => resolved.startsWith(path.resolve(root)))) {
-        refused.push(`${name}: not inside this run's scratch`);
+      const found = locate(name, true) ?? locate(name);
+      if (!found) {
+        refused.push(`${name}: not inside this run's scratch, give it relative to ${roots[0] ?? "the scratch root"}`);
         continue;
       }
+      const resolved = found.path;
       if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
         refused.push(`${name}: not a file`);
         continue;
@@ -50,7 +70,7 @@ export function createLabClient({ cfg, env = process.env, staging = {}, log = ()
         refused.push(`${name}: over the staged size limit`);
         continue;
       }
-      staged.push({ path: path.relative(path.resolve(roots[0]), resolved) || path.basename(resolved), contents: fs.readFileSync(resolved, "utf8") });
+      staged.push({ path: path.relative(found.root, resolved) || path.basename(resolved), contents: fs.readFileSync(resolved, "utf8") });
       total += size;
     }
     return { files: staged, refused };
@@ -58,9 +78,10 @@ export function createLabClient({ cfg, env = process.env, staging = {}, log = ()
 
   /** A whole directory as a tarball, for a build context. Capped, and only from this run's scratch. */
   async function stageContext(dir) {
-    const resolved = path.resolve(String(dir));
     const roots = staging.roots ?? [];
-    if (!roots.some((root) => resolved.startsWith(path.resolve(root)))) return { refused: `${dir}: not inside this run's scratch` };
+    const found = locate(dir);
+    if (!found) return { refused: `${dir}: not inside this run's scratch, give it relative to ${roots[0] ?? "the scratch root"}` };
+    const resolved = found.path;
     if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) return { refused: `${dir}: not a directory` };
     const capMb = lab.maxContextMb ?? 30;
     const child = spawn("tar", ["-C", resolved, "--exclude", ".git", "-czf", "-", "."]);
