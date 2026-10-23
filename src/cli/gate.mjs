@@ -48,7 +48,8 @@ async function main() {
     return;
   }
 
-  if (!id) usage("a gate id is required");
+  // These work over every gate the bot holds, so they are the commands that do not need an id.
+  if (!id && !["list", "sync", "controls", "redraw"].includes(command)) usage("a gate id is required");
   const gate = store.getGate(id);
   if (!gate) usage(`no gate ${id}`);
 
