@@ -280,8 +280,9 @@ export function createLabHandler({ limits, egress = "registries", workspace = "/
           result = { ...output, image: plan.image ?? params.image ?? "" };
         }
         log(`lab ${jobId} ${action}: exit ${result.exit} in ${Date.now() - started}ms`);
-        // A foreground job leaves nothing behind; a started one is kept until down or the sweep.
-        if (action !== "start" && action !== "compose") await cleanup({ run, jobId, jobDir, log });
+        // Only a call that ran to completion in one go leaves nothing behind. A service started for exec
+        // and logs must survive the inspecting calls, or the second look finds an empty host.
+        if (action === "run" || action === "build") await cleanup({ run, jobId, jobDir, log });
       }
     } catch (error) {
       result = { exit: 1, stdout: "", stderr: error.message, durationMs: 0, image: "" };

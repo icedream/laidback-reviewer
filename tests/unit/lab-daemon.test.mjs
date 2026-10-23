@@ -184,3 +184,20 @@ test("cleanup removes this job's containers and its directory", async () => {
   assert.ok(calls.some((argv) => argv[0] === "rm" && argv[1] === "-f" && argv[2] === "laidback-job9-db"));
   assert.equal(fs.existsSync(jobDir), false);
 });
+
+test("inspecting a service does not tear it down", async () => {
+  const { run } = fakeRun({ stdout: "PONG" });
+  const cleaned = [];
+  const handler = createLabHandler({ limits: LIMITS, run, workspace: tempDir("svc"), cleanup: async ({ jobId }) => cleaned.push(jobId) });
+
+  for (const url of ["/start", "/exec", "/exec", "/logs"]) {
+    const { req, res } = request({ url, body: { job: "svcA", image: "redis:7-alpine", cmd: "redis-cli ping" } });
+    await handler(req, res);
+    assert.equal(res.payload.exit, 0, url);
+  }
+  assert.deepEqual(cleaned, [], "the container is still there for the next call");
+
+  const last = request({ url: "/down", body: { job: "svcA" } });
+  await handler(last.req, last.res);
+  assert.deepEqual(cleaned, ["svcA"], "and it goes when the review says so");
+});
