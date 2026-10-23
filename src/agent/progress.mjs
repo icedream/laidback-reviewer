@@ -29,6 +29,17 @@ function detailOf(args) {
  */
 export function createProgress({ log = () => {}, mode = "tools", heartbeatMs = 15_000, startedAt = Date.now(), now = () => Date.now(), timer = setTimeout, untimer = clearTimeout, onState = null }) {
   const state = { toolCalls: 0, tokens: 0, phase: "starting", lastEventAt: startedAt };
+  const inFlight = new Map();
+
+  // A tool call in flight is the whole story of a quiet run: the model is waiting, the inference server
+  // has nothing to do, and "still working: tool bash" says none of that.
+  const runningNote = () => {
+    if (!inFlight.size) return "";
+    const [first] = inFlight.values();
+    const waited = Math.max(0, Math.round((now() - first.at) / 1000));
+    const extra = inFlight.size > 1 ? ` (+${inFlight.size - 1} more)` : "";
+    return `${first.name}${first.detail ? ` ${first.detail}` : ""} running ${waited}s${extra}`;
+  };
 
   const report = () => onState?.(state);
   const quiet = mode === "off";
@@ -56,10 +67,14 @@ export function createProgress({ log = () => {}, mode = "tools", heartbeatMs = 1
         state.toolCalls += 1;
         state.phase = `tool ${event.toolName}`;
         state.lastDetail = detailOf(event.args);
+        inFlight.set(event.toolCallId ?? `${event.toolName}:${state.toolCalls}`, { name: event.toolName, detail: state.lastDetail, at: now() });
         say(`${state.phase}${state.lastDetail ? ` ${state.lastDetail}` : ""}`);
         report();
         break;
       case "tool_execution_end":
+        inFlight.delete(event.toolCallId ?? "");
+        // Once nothing is in flight the phase must stop naming a call that finished.
+        if (!inFlight.size) state.phase = `tool ${event.toolName}`;
         if (mode !== "full") break;
         say(`    ${event.toolName} ${event.isError ? "failed" : "done"}${typeof event.durationMs === "number" ? ` in ${Math.round(event.durationMs / 100) / 10}s` : ""}`);
         break;
@@ -70,7 +85,9 @@ export function createProgress({ log = () => {}, mode = "tools", heartbeatMs = 1
   const beat = () => {
     // Some local providers report no usage, and "0k tokens" then reads like a bug rather than a gap.
     const tokenNote = state.tokens ? `, ${Math.round(state.tokens / 100) / 10}k tokens` : "";
-    say(`still working: ${state.phase}, ${state.toolCalls} tool call(s)${tokenNote}`);
+    const running = runningNote();
+    if (running) state.phase = `waiting on ${running}`;
+    say(`${running ? "waiting on" : "still working:"} ${running || state.phase}, ${state.toolCalls} tool call(s)${tokenNote}`);
     heartbeat = timer(beat, heartbeatMs);
     report();
   };
