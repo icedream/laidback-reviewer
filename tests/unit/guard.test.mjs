@@ -119,7 +119,7 @@ test("quoted text is data, not a command", async () => {
   // Both of these blocked a live review: a grep pattern that mentions docker, and an echo that prints
   // "gh auth", which took a legitimate git grep down with it.
   const quotedData = [
-    ["a grep pattern naming docker", 'cd /work/scratch/x && grep -n "GO_ENV_ARGS\\|GOTOOLCHAIN\\|docker build\\|docker run" .build/scripts/crd-gen.sh | head -12'],
+    ["a grep pattern naming docker", 'cd /work/scratch/x && grep -n "BUILD_ARGS\\|GOTOOLCHAIN\\|docker build\\|docker run" .ci/scripts/build.sh | head -12'],
     ["an echo that prints gh auth", 'cd /work/scratch/x && git grep -n "FROM golang" 1ea528f1 -- . | head; echo "=== gh auth ==="; gh auth status 2>&1 | head -5'],
     ["a note quoting a denied verb", "cd /work/scratch/x && printf '%s\\n' 'go mod tidy would be needed here'"],
     ["a format string with a quoted path", 'cd "/work/scratch/my dir" && git log -1 --format=\'%H %ci %s\''],
