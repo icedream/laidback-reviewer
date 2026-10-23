@@ -16,10 +16,14 @@ Environment=LAIDBACK_LAB_PROXY=http://host.containers.internal:3128
 # Readable by the bot and by the lab user, and by nobody else.
 EnvironmentFile=/etc/laidback/lab.env
 Restart=on-failure
-NoNewPrivileges=true
+# Not NoNewPrivileges: rootless podman escalates through newuidmap and newgidmap to build its user
+# namespace, and that setting refuses the escalation, so every job dies before it starts.
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
+# With the home read-only, the runtime's image storage goes under the workspace.
+Environment=XDG_DATA_HOME=/var/lib/laidback-lab/containers
+Environment=XDG_CACHE_HOME=/var/lib/laidback-lab/cache
 ReadWritePaths=/var/lib/laidback-lab
 MemoryMax=6G
 TasksMax=512
