@@ -34,7 +34,7 @@ export function createTelegramFake({ token = "1234567:AA-test-token" } = {}) {
       if (failNext) {
         const failure = failNext;
         failNext = null;
-        return json(failure.status ?? 502, { ok: false, description: failure.description });
+        return json(failure.status ?? 502, { ok: false, description: failure.description, ...(failure.parameters ? { parameters: failure.parameters } : {}) });
       }
 
       switch (method) {
@@ -118,8 +118,8 @@ export function createTelegramFake({ token = "1234567:AA-test-token" } = {}) {
       callbacks.push(update);
       return update;
     },
-    failNextWith(description, status) {
-      failNext = { description, status };
+    failNextWith(description, status, parameters) {
+      failNext = { description, status, parameters };
     },
   };
 }

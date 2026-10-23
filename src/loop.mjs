@@ -274,29 +274,50 @@ export async function runLoop({
     // The gate is read while a cycle runs, not only after it. A review takes minutes, and a tap pressed in
     // that window used to sit unread until the pass finished.
     let reading = null;
-    const stopTicker = gateTimer(cfg.gate.pollIntervalMs, () => {
-      reading ??= readGate().finally(() => {
-        reading = null;
+    let stopPoller;
+    if (transport?.longPollMs) {
+      // The transport holds its request open until something arrives, so the poller is a loop rather than
+      // a clock: a tap lands as soon as the channel releases the connection. One request at a time, which
+      // is also what the channel requires of a token.
+      let running = true;
+      const polling = (async () => {
+        while (running && !stop.current) {
+          reading = readGate();
+          await reading;
+          reading = null;
+        }
+      })();
+      stopPoller = async () => {
+        running = false;
+        await polling;
+      };
+    } else {
+      stopPoller = gateTimer(cfg.gate.pollIntervalMs, () => {
+        reading ??= readGate().finally(() => {
+          reading = null;
+        });
       });
-    });
+    }
     try {
       await runCycle({ cfg, store, client, transport, shutdown });
     } catch (error) {
       console.error(`cycle failed: ${error.message}`);
     } finally {
-      stopTicker();
+      await stopPoller();
       if (reading) await reading;
     }
 
     // Between discovery cycles the loop waits on the gate rather than on the clock: a tap lands within
-    // gate.pollIntervalMs, and the cycle that acts on it runs right away instead of up to a full
-    // github.pollIntervalMs later.
+    // gate.pollIntervalMs, or immediately for a channel that long-polls, and the cycle that acts on it runs
+    // right away instead of up to a full github.pollIntervalMs later.
     const until = started + cfg.github.pollIntervalMs;
     while (!stop.current && !wake && now() - started < cfg.github.pollIntervalMs) {
-      await nap(Math.min(cfg.gate.pollIntervalMs, Math.max(0, until - now())));
+      if (!transport?.longPollMs) await nap(Math.min(cfg.gate.pollIntervalMs, Math.max(0, until - now())));
       await readGate();
     }
   }
+
+  transport?.releaseLease?.();
 }
 
 function intervalTimer(ms, fn) {

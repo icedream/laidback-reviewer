@@ -32,6 +32,7 @@ function telegramCfg(overrides = {}) {
         chatId: "",
         allowUsersEnv: "LAIDBACK_TELEGRAM_USERS",
         timeoutMs: 5_000,
+        longPollSeconds: 25,
         maxFindingButtons: 8,
         rerunButton: true,
         notify: true,
@@ -382,5 +383,60 @@ test("a Telegram failure leaves the gate queued rather than lost", async () => {
     store.close();
     telegram.close();
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the poll holds the connection open, so a tap does not wait on a clock", async () => {
+  const f = await fixture();
+  try {
+    await f.gateTransport.readDecisions();
+    const poll = f.telegram.calls.find((entry) => entry.method === "getUpdates");
+    assert.equal(poll.payload.timeout_ms, 25, "an unattended bot long-polls instead of asking every few seconds");
+    assert.equal(f.gateTransport.longPollMs, 25_000);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("the poller holds a lease so a second process cannot steal an update", async () => {
+  const f = await fixture();
+  const logged = [];
+  try {
+    await f.gateTransport.readDecisions();
+    assert.equal(Number(f.gateTransport.leaseHeld().pid), process.pid);
+
+    // A second poller means a second process, which a test cannot fork here: the lease row is what the
+    // check reads, so name a pid that is not ours.
+    f.store.setMeta("telegram_poller_lease", JSON.stringify({ pid: process.pid + 1, at: new Date().toISOString() }));
+    const other = createTelegramGate({
+      cfg: f.cfg,
+      store: f.store,
+      token: f.telegram.token,
+      chatId: "4242",
+      allowUsers: ["4242"],
+      log: (line) => logged.push(String(line)),
+      apiBase: f.telegram.apiBase,
+    });
+    assert.deepEqual(await other.readDecisions(), [], "two consumers of one token lose updates to whichever asked");
+    assert.match(logged.join("\n"), /another process is polling this bot token/);
+
+    f.store.setMeta("telegram_poller_lease", JSON.stringify({ pid: process.pid, at: new Date().toISOString() }));
+    f.gateTransport.releaseLease();
+    assert.equal(f.gateTransport.leaseHeld(), null, "a stopped poller gives the token back");
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("a rate limit is waited out instead of losing the decision", async () => {
+  const f = await fixture();
+  try {
+    const before = f.telegram.calls.filter((entry) => entry.method === "getUpdates").length;
+    f.telegram.failNextWith("too many requests", 429, { retry_after: 0 });
+    await f.gateTransport.readDecisions();
+    const after = f.telegram.calls.filter((entry) => entry.method === "getUpdates").length;
+    assert.equal(after, before + 2, "the 429 is retried once after the window the channel asked for");
+  } finally {
+    f.cleanup();
   }
 });

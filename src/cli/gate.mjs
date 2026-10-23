@@ -42,6 +42,12 @@ async function main() {
     const cfg = loadConfig();
     const transport = gateTransportFromConfig({ cfg, store, log: (line) => console.log(line) });
     if (!transport) usage(`sync reads the gate channel: gate.channel=${cfg.gate.channel} needs its credentials, e.g. gate.telegram.botTokenEnv and gate.telegram.chatIdEnv`);
+    // One process may poll a bot token: two consumers means 409s and decisions landing wherever.
+    const held = transport.leaseHeld?.();
+    if (held) {
+      console.log(`the bot is polling this token (pid ${held.pid}, since ${String(held.at).slice(11, 19)}); its own cycle reads decisions, so there is nothing to sync`);
+      return;
+    }
     const applied = await transport.readDecisions();
     if (!applied.length) console.log("no new decisions in the gate threads");
     for (const gate of applied) console.log(`gate ${gate.id} -> ${gate.state} by ${gate.decided_by}${gate.reason ? ` (${gate.reason})` : ""}`);

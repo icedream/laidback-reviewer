@@ -139,6 +139,7 @@ gate:
     telegram:
       botTokenEnv: TELEGRAM_BOT_TOKEN   # from @BotFather; keep it in your password manager
       chatIdEnv: TELEGRAM_CHAT_ID       # numeric chat id; npm run gate:check:telegram -- --discover prints it
+      longPollSeconds: 25            # getUpdates holds the connection open; 0 falls back to polling each gate.pollIntervalMs
       allowUsersEnv: LAIDBACK_TELEGRAM_USERS
       maxFindingButtons: 8              # one numbered button per finding
       rerunButton: true               # a fourth control asks for another pass over the head

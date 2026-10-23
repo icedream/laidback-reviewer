@@ -124,6 +124,8 @@ const deadline = Date.now() + timeoutMs;
 console.log(`posted gate ${gateId} to chat ${chatId}; waiting up to ${Math.round(timeoutMs / 1000)}s for a tap`);
 
 while (Date.now() < deadline) {
+  const held = telegram.leaseHeld?.();
+  if (held) console.log(`note: the running bot holds the poll lease (pid ${held.pid}); a decision may land in its cycle instead of here`);
   const applied = await telegram.readDecisions();
   if (applied.length) {
     const gate = applied[0];

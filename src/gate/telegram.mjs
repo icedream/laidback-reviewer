@@ -12,6 +12,11 @@ import { requestRerun } from "./gate.mjs";
 import { expirePending } from "./expire.mjs";
 
 const OFFSET_KEY = "telegram_update_offset";
+const LEASE_KEY = "telegram_poller_lease";
+// A poller that died leaves its lease behind; after this long the next process may take it over.
+const LEASE_STALE_MS = 120_000;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const TELEGRAM_TEXT_LIMIT = 4096;
 
 export function telegramGateFromConfig({ cfg, store, env = process.env, log = () => {}, apiBase }) {
@@ -30,17 +35,62 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
   const telegram = cfg.gate.telegram;
 
   async function call(method, payload = {}) {
-    const response = await fetch(`${apiBase}/bot${token}/${method}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(telegram.timeoutMs),
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok || body.ok === false) {
-      throw new Error(`telegram ${method}: ${body.description ?? `HTTP ${response.status}`}`);
+    // A rate limit is a wait, not a failure: honour retry_after once before saying anything went wrong.
+    for (let attempt = 0; ; attempt += 1) {
+      const response = await fetch(`${apiBase}/bot${token}/${method}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(telegram.timeoutMs),
+      });
+      const body = await response.json().catch(() => ({}));
+      const retryAfterMs = Math.min(Number(body.parameters?.retry_after ?? 1) * 1000, 60_000);
+      if (response.status === 429 && attempt === 0) {
+        await sleep(retryAfterMs);
+        continue;
+      }
+      if (!response.ok || body.ok === false) {
+        const error = new Error(`telegram ${method}: ${body.description ?? `HTTP ${response.status}`}`);
+        error.retryAfterMs = response.status === 429 ? retryAfterMs : 0;
+        throw error;
+      }
+      return body.result;
     }
-    return body.result;
+  }
+
+  /**
+   * One process may poll a bot token. Two consumers of getUpdates means 409s and decisions that land in
+   * whichever process happened to be asking, so the poller takes a lease and the command line checks it.
+   */
+  function claimLease() {
+    const now = new Date();
+    const raw = store.getMeta(LEASE_KEY);
+    if (raw) {
+      try {
+        const held = JSON.parse(raw);
+        if (Number(held.pid) !== process.pid && now.getTime() - Date.parse(held.at ?? 0) < LEASE_STALE_MS) return false;
+      } catch {
+        // A lease that cannot be read is no longer holding anything.
+      }
+    }
+    store.setMeta(LEASE_KEY, JSON.stringify({ pid: process.pid, at: now.toISOString() }));
+    return true;
+  }
+
+  function leaseHeld() {
+    const raw = store.getMeta(LEASE_KEY);
+    if (!raw) return null;
+    try {
+      const held = JSON.parse(raw);
+      if (Date.now() - Date.parse(held.at ?? 0) < LEASE_STALE_MS) return held;
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  function releaseLease() {
+    if (leaseHeld()?.pid === process.pid) store.setMeta(LEASE_KEY, "");
   }
 
   async function post(gateId, summary, { reviewId = null } = {}) {
@@ -127,17 +177,22 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
   }
 
   async function readDecisions() {
+    if (!claimLease()) {
+      log("another process is polling this bot token; its cycle reads the decisions");
+      return [];
+    }
     const offset = Number(store.getMeta(OFFSET_KEY) ?? "0");
     let updates;
     try {
       updates = await call("getUpdates", {
         offset,
         limit: 100,
-        timeout_ms: 0,
+        timeout_ms: Number(telegram.longPollSeconds ?? 0),
         allowed_updates: ["callback_query"],
       });
     } catch (error) {
       log(`telegram getUpdates failed: ${error.message}`);
+      if (error.retryAfterMs) await sleep(Math.min(error.retryAfterMs, LEASE_STALE_MS));
       return [];
     }
 
@@ -296,5 +351,5 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
     return true;
   }
 
-  return { post, status, refreshControls, readDecisions, expire, call, redraw, notify };
+  return { post, status, refreshControls, readDecisions, expire, call, redraw, notify, releaseLease, leaseHeld, longPollMs: Math.max(0, Number(telegram.longPollSeconds ?? 0)) * 1000 };
 }

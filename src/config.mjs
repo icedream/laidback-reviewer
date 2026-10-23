@@ -208,6 +208,9 @@ export const CONFIG_SCHEMA = record({
       chatId: string({ def: "" }),
       allowUsersEnv: string({ def: "LAIDBACK_TELEGRAM_USERS" }),
       timeoutMs: integer({ def: 15_000, min: 1_000 }),
+      // getUpdates holds the connection open this long, which is what makes a tap land immediately.
+      // 0 falls back to short polling: a request per gate.pollIntervalMs.
+      longPollSeconds: integer({ def: 25, min: 0, max: 50 }),
       // One numbered button per finding, so a ten-finding review still fits on one screen.
       maxFindingButtons: integer({ def: 8, min: 0, max: 40 }),
       rerunButton: bool({ def: true }),

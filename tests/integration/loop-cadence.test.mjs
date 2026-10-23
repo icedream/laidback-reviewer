@@ -125,3 +125,44 @@ test("a tap pressed while a review is running is read before that review finishe
 
   assert.ok(reads.includes(true), `the gate was only read at cycle boundaries: ${JSON.stringify(reads)}`);
 });
+
+test("a long-polling channel is read continuously, one request at a time", async () => {
+  const cfg = { github: { pollIntervalMs: 30_000 }, gate: { pollIntervalMs: 5_000 } };
+  const stop = { current: false };
+  const reads = [];
+  let outstanding = 0;
+  let overlaps = 0;
+  let inFlight = false;
+  let releaseCycle = null;
+
+  const transport = {
+    // The channel holds the request open, so the poller loops rather than waiting on a clock.
+    longPollMs: 25_000,
+    expire: () => 0,
+    readDecisions: async () => {
+      outstanding += 1;
+      if (outstanding > 1) overlaps += 1;
+      reads.push(inFlight);
+      if (inFlight) {
+        releaseCycle();
+        stop.current = true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      outstanding -= 1;
+      return [];
+    },
+  };
+  const runCycle = () =>
+    new Promise((resolve) => {
+      inFlight = true;
+      releaseCycle = () => {
+        inFlight = false;
+        resolve();
+      };
+    });
+
+  await runLoop({ cfg, store: { approvedUnpostedReviews: () => [] }, client: {}, transport, stop, runCycle, now: () => 0, nap: async () => {} });
+
+  assert.ok(reads.includes(true), `the poller stopped asking during the cycle: ${JSON.stringify(reads)}`);
+  assert.equal(overlaps, 0, "two getUpdates on one token means 409s and lost decisions");
+});
