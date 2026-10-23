@@ -1,7 +1,16 @@
 # The lab daemon: one service, one unprivileged user, nothing of the bot's in its reach.
 #
-# Install it as the lab user's own unit, not root's: the runtime under it is rootless, so a container that
-# escapes its namespaces owns an unprivileged account rather than the machine.
+# Prerequisites, in order, as root:
+#   useradd -r lab
+#   usermod --add-subuids 100000-165535 --add-subgids 100000-165535 lab
+#   loginctl enable-linger lab
+#   install -d -m 0750 -o lab -g lab /home/lab /var/lib/laidback-lab
+#   install -d -m 0755 /opt/laidback-lab   and copy src/lab/daemon.mjs and actions.mjs into it
+#   an EnvironmentFile holding LAIDBACK_LAB_TOKEN, root:lab 0640
+#
+# Lingering is not an optional extra. Rootless podman needs a user slice whose cgroup it owns, and a system
+# service with no session has none; without it podman falls back to cgroupfs and then refuses --cpus,
+# --memory and --pids-limit outright, so every job dies on "unable to apply cgroup configuration".
 
 [Unit]
 Description=Laidback reviewer lab daemon
@@ -9,15 +18,22 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/node /opt/laidback-reviewer/src/lab/daemon.mjs --port 9443 --host 172.17.0.1 --workspace /var/lib/laidback-lab --egress none --cpus 4 --memory 4096 --pids 512 --timeout-ms 600000 --concurrency 1
+User=lab
+Group=lab
+ExecStart=/usr/bin/node /opt/laidback-lab/daemon.mjs --port 9443 --host 172.17.0.1 --workspace /var/lib/laidback-lab --egress none --cpus 4 --memory 4096 --pids 512 --timeout-ms 600000 --concurrency 1
+Environment=HOME=/home/lab
+# The user's own runtime directory, not a private one: that is where the delegated cgroup lives.
+Environment=XDG_RUNTIME_DIR=/run/user/%U
 Environment=LAIDBACK_LAB_WORKSPACE=/var/lib/laidback-lab
 Environment=LAIDBACK_LAB_EGRESS=none
 Environment=LAIDBACK_LAB_PROXY=http://host.containers.internal:3128
-# Readable by the bot and by the lab user, and by nobody else.
 EnvironmentFile=/etc/laidback/lab.env
+# The cgroup subtree has to belong to the service for the runtime to place a container in it.
+Delegate=yes
 Restart=on-failure
-# Not NoNewPrivileges: rootless podman escalates through newuidmap and newgidmap to build its user
-# namespace, and that setting refuses the escalation, so every job dies before it starts.
+# Do not add NoNewPrivileges: rootless podman escalates through newuidmap and newgidmap to build its user
+# namespace, and that setting refuses the escalation. If a drop-in must undo it, write
+# `NoNewPrivileges=no`; an empty value only resets list settings, not booleans.
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
@@ -29,4 +45,4 @@ MemoryMax=6G
 TasksMax=512
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
