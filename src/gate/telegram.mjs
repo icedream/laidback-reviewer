@@ -51,7 +51,9 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
       }
       if (!response.ok || body.ok === false) {
         const error = new Error(`telegram ${method}: ${body.description ?? `HTTP ${response.status}`}`);
-        error.retryAfterMs = response.status === 429 ? retryAfterMs : 0;
+        // A 409 means another poller holds the token's slot, usually a previous process whose long-poll
+        // request has not been reaped yet. Asking again immediately only keeps stealing it back.
+        error.retryAfterMs = response.status === 429 ? retryAfterMs : response.status === 409 ? 5_000 : 0;
         throw error;
       }
       return body.result;

@@ -440,3 +440,15 @@ test("a rate limit is waited out instead of losing the decision", async () => {
     f.cleanup();
   }
 });
+
+test("a token already being polled says so with a wait, not a retry storm", async () => {
+  const f = await fixture();
+  try {
+    f.telegram.failNextWith("Conflict: terminated by other getUpdates request", 409);
+    const error = await f.gateTransport.call("getUpdates", {}).then(() => null, (caught) => caught);
+    assert.match(error.message, /Conflict/);
+    assert.equal(error.retryAfterMs, 5_000, "the poller waits instead of taking the slot back and forth");
+  } finally {
+    f.cleanup();
+  }
+});
