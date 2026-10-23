@@ -2,6 +2,10 @@ services:
   reviewer:
     build: .
     container_name: laidback-reviewer
+    # The lab daemon runs on the host as its own unprivileged user. This is the only route from the
+    # container to it, and it carries a token rather than any of the bot's own credentials.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     user: ${UID:-1000}:${GID:-1000}
     restart: unless-stopped
     env_file:
