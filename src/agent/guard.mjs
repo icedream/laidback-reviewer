@@ -9,6 +9,8 @@
 
 // Deny patterns are matched against the command positions, not against arbitrary text: a review that
 // quotes `go mod tidy` in a note, or greps a path containing `docker`, is not running either thing.
+import { matchRepository } from "../github/scope.mjs";
+
 const BASH_DENY = [
   { re: /\bgit\b[^|;&]*\bpush\b/, reason: "git push is not permitted: a review bot has no write access to repository contents" },
   { re: /\bgit\s+config\b.*(credential|url\.|remote\.|insteadOf)/, reason: "git config for credentials, URL rewriting, or remotes is not permitted" },
@@ -134,6 +136,23 @@ const READ_DENY = [
 ];
 
 const ATLASSIAN_READ = /^(get|search|query|list|read|fetch|discover)/i;
+
+/**
+ * A review may read the repository in front of it and the ones the operator put in scope. The token can see
+ * more than that, and a review that clones an unrelated private repository has stopped reviewing the pull
+ * request it was asked about.
+ */
+function repoFetchDenied(command, scope) {
+  if (!scope || !((scope.orgs ?? []).length || (scope.repos ?? []).length)) return null;
+  if (!/\bgit\s+(clone|fetch|ls-remote|submodule)\b|\bgh\s+api\b/.test(command)) return null;
+  const refs = new Set();
+  for (const match of command.matchAll(/github\.com[:/]([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+?)(?:\.git)?(?![\w-])/gi)) refs.add(match[1]);
+  for (const match of command.matchAll(/\bgh\s+api\b[^|;&]*?\brepos\/([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)/gi)) refs.add(match[1]);
+  for (const ref of refs) {
+    if (!matchRepository(ref, scope).allowed) return `${ref} is outside the repositories this bot reviews`;
+  }
+  return null;
+}
 // The connector also offers generic calls named by verb, so the read variant cannot be caught by a prefix.
 const ATLASSIAN_READ_CALLS = new Set(["executeRead"]);
 
@@ -155,7 +174,7 @@ function atlassianToolName(toolName, input) {
   return "";
 }
 
-export function createReviewGuard({ allowHosts = [], bashEnabled = true, writableRoots = [], checkoutDir = "", labEnabled = false, deniedPaths = [], log = [] } = {}) {
+export function createReviewGuard({ allowHosts = [], bashEnabled = true, writableRoots = [], checkoutDir = "", labEnabled = false, deniedPaths = [], repoScope = null, log = [] } = {}) {
   const scratchOpts = { writableRoots, checkoutDir };
   const block = (record) => {
     log.push(record);
@@ -196,6 +215,10 @@ export function createReviewGuard({ allowHosts = [], bashEnabled = true, writabl
         if (/\b(curl|wget)\b/.test(command)) {
           const reason = hostAllowDenied(command, allowHosts);
           if (reason) return block({ tool: "bash", command, reason });
+        }
+        const outOfScope = repoFetchDenied(runnable, repoScope);
+        if (outOfScope) {
+          return block({ tool: "bash", command, reason: `${outOfScope}: a review reads the repository under review and what github.orgs/repos allows` });
         }
         if (writableRoots.length) {
           const escaped = command.match(/(?:^|[\s;|&])(?:>\s*|>>\s*|tee\s+(?:-a\s+)?)(\/[^\s"']+)/g) ?? [];

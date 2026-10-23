@@ -182,3 +182,22 @@ test("a review cannot dismantle the worktree it runs in", async () => {
   assert.equal(await runnable("bash", { command: "git worktree list" }), undefined, "listing them is a read");
   assert.equal(await runnable("bash", { command: "git worktree add /tmp/copy HEAD~1" }), undefined, "a scratch copy is allowed");
 });
+
+test("a review fetches only the repositories the bot is configured for", async () => {
+  const scoped = decide({ repoScope: { orgs: ["example-corp"], repos: [], deny: [] } });
+  assert.equal(await scoped("bash", { command: "git clone --depth 1 https://github.com/example-corp/orders-svc.git /tmp/stacked" }), undefined, "in scope stays open");
+  for (const command of [
+    "git clone https://github.com/other-inc/go-guidelines.git /tmp/skills",
+    "GIT_TOKEN=$(cat /tmp/tok); git clone https://x-access-token:$GIT_TOKEN@github.com/other-inc/private-tooling.git",
+    "gh api repos/other-inc/go-guidelines/contents/SKILL.md",
+  ]) {
+    const blocked = await scoped("bash", { command });
+    assert.ok(blocked, `expected a block: ${command}`);
+    assert.match(blocked.reason, /outside the repositories this bot reviews/);
+  }
+  // Reading and building stay open: the rule is about fetching repositories, not about naming them.
+  assert.equal(await scoped("bash", { command: "grep -rn 'github.com/other-inc/go-guidelines' . | head" }), undefined);
+  assert.equal(await scoped("bash", { command: "go mod download github.com/other-inc/lib@v1.2.3" }), undefined);
+  // No scope configured means nothing to compare against, which is how the other tests run.
+  assert.equal(await decide()("bash", { command: "git clone https://github.com/any/thing.git" }), undefined);
+});
