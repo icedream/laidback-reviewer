@@ -19,7 +19,8 @@
     "test:docker": "docker build -t laidback-reviewer . && docker run --rm -v \"$PWD/tests:/app/tests:ro\" laidback-reviewer node --test --test-force-exit",
     "test:compose": "docker compose build && docker compose run --rm -v \"$PWD/tests:/app/tests:ro\" reviewer node --test --test-force-exit",
     "gate:check:telegram": "node src/cli/telegram-check.mjs",
-    "gate:check:telegram:docker": "docker compose run --rm reviewer node src/cli/telegram-check.mjs"
+    "gate:check:telegram:docker": "docker compose run --rm reviewer node src/cli/telegram-check.mjs",
+    "reviews:score": "node scripts/score-reviews.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^1.3.0",

@@ -21,10 +21,21 @@ test("the contract keeps the rule about what is already on the PR", () => {
 test("the contract keeps the runner out of the review text", () => {
   const cfg = { reviews: { dryRun: true, approve: "hint", requestChanges: "submit" }, agent: {}, banner: { mode: "appended", prefix: "", suffix: "" } };
   const text = JSON.stringify(nonInteractiveContract({ cfg, checkoutDir: "/work/x", prRef: { repository: "acme/svc", number: 7 } }));
-  assert.match(text, /Name the tools you ran as evidence/);
-  assert.match(text, /What stays out of the review is the runner and its limits/);
+  assert.match(text, /Name what you ran as evidence only where the run is the finding/);
+  assert.match(text, /What stays out of the review is the runner/);
   assert.match(text, /which hosts were unreachable/);
   assert.match(text, /A check you did not do is simply not claimed/);
+});
+
+test("the contract keeps a lint run and the author's own caveats out of the body", () => {
+  // An example sentence handed over as evidence invites both shapes: a recited tool version, and an
+  // answer to a caveat the author wrote about their own change.
+  const cfg = { reviews: { dryRun: true, approve: "hint", requestChanges: "submit" }, agent: {}, banner: { mode: "appended", prefix: "", suffix: "" } };
+  const text = JSON.stringify(nonInteractiveContract({ cfg, checkoutDir: "/work/x", prRef: { repository: "acme/svc", number: 7 } }));
+  assert.doesNotMatch(text, /golangci-lint v2\.12\.2/);
+  assert.match(text, /never the version, the/);
+  assert.match(text, /What a gate run showed goes to the record, not the body/);
+  assert.match(text, /Notes the author wrote in the PR body themselves are their account of the work/);
 });
 
 test("the contract tells the review which notice opens and which closes", () => {

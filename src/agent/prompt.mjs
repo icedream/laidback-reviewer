@@ -178,6 +178,9 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, r
       "Two harness differences: a gate run that passed goes to review_record_gate and never onto the",
       "PR, and the harness may add its own line about whether the verdict is being sent, so do not",
       "write that a review was posted or that an approval stands.",
+      "Length follows the diff, not the ceiling: around 150 words is a PR-sized body, and a fix of a",
+      "hundred lines earns a clause, not a paragraph. A body whose sentences ask the author for nothing",
+      "is too long.",
     ].join("\n"),
   );
 
