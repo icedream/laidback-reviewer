@@ -343,7 +343,9 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
       keyboard.push(decisionRows(gate.id), ...findingRows(gate.id, shown.length));
       if (offersRerun) keyboard.push(rerunRow(gate.id));
     } else {
-      text += `\n\n<b>${gate.state}</b>${gate.decided_by ? ` by ${gate.decided_by}` : ""}`;
+      // The reason is what makes a settled gate readable: "withdrawn" on its own does not say the pull
+      // request merged out from under the ask.
+      text += `\n\n<b>${gate.state}</b>${gate.decided_by ? ` by ${gate.decided_by}` : ""}${gate.reason ? `: ${gate.reason}` : ""}`;
     }
     await call("editMessageText", {
       chat_id: chatId,

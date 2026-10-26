@@ -9,6 +9,7 @@
 import { prepareCheckout, releaseWorktree, sweepScratch } from "./checkout.mjs";
 import { findCandidates } from "./discovery.mjs";
 import { taskGateDecision } from "./gate/gate.mjs";
+import { withdrawClosedPullGates } from "./gate/obsolete.mjs";
 import { clearFailure, failureNote, failurePlan, recordFailure } from "./proposal/retries.mjs";
 import { postApprovedReview } from "./proposal/repost.mjs";
 import { runReview } from "./review-run.mjs";
@@ -31,6 +32,11 @@ export async function cycle({
     const decided = await transport.readDecisions();
     for (const gate of decided) log(`gate ${gate.id} ${gate.state} by ${gate.decided_by}${gate.reason ? ` (${gate.reason})` : ""}`);
   }
+
+  // An approval tapped after the author merged is a decision nothing can act on: discovery searches open
+  // pull requests, so the head is never a candidate again. Settling those gates here is what keeps the
+  // channel honest instead of leaving an approval waiting on a pass that will not come.
+  await withdrawClosedPullGates({ store, client, transport, log });
 
   // A deferral keeps its tree; a tree no deferral keeps is garbage, and garbage here is also misleading
   // because a later pass could read another run's comparison files as its own.

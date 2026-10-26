@@ -19,7 +19,11 @@ export function createFakeGithubApi({ fixture, me = "octocat", token = "test-tok
     number: fixture.pr,
     title: fixture.title ?? "refactor: move order listing behind a service client",
     body: fixture.prBody ?? "",
-    state: "open",
+    // GitHub reports a merged pull request as closed with `merged_at` set, and its search only answers
+    // `is:open`, so a test that merges the fixture has to see it drop out of discovery.
+    state: fixture.state ?? "open",
+    merged_at: fixture.merged_at ?? null,
+    closed_at: fixture.closed_at ?? null,
     draft: false,
     html_url: `https://github.com/${fixture.owner}/${fixture.repo}/pull/${fixture.pr}`,
     created_at: "2026-04-01T09:00:00Z",
@@ -72,6 +76,7 @@ export function createFakeGithubApi({ fixture, me = "octocat", token = "test-tok
       handle: (query = {}) => {
         // One endpoint, two qualifiers: answer only when the fixture carries that relationship.
         const q = query.q ?? "";
+        if (q.includes("is:open") && pr.state !== "open") return { total_count: 0, incomplete_results: false, items: [] };
         const mine = (list) => (list ?? []).some((entry) => String(entry.login ?? "").toLowerCase() === me.toLowerCase());
         const matched = q.includes("review-requested:") ? mine(pr.requested_reviewers) : q.includes("assignee:") ? mine(pr.assignees) : false;
         if (!matched) return { total_count: 0, incomplete_results: false, items: [] };

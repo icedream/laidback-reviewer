@@ -181,6 +181,14 @@ again on the same head reopens it when `reviews.respondToReRequest` is on, up to
 `reviews.maxReReviewsPerHead` times per head, and the task prompt then says plainly that this is a
 re-review so the model reports what changed instead of repeating itself.
 
+The search carries `is:open`, so a pull request that merges or closes stops being a candidate at once. A
+task gate queued before that happens is then unconsumable: nothing asks for the head again, and an
+approval tapped after the merge would sit there looking like a review that had not started. The cycle
+settles those gates instead, before it goes looking for candidates: the row becomes `withdrawn` with the
+merge time as its reason, its channel message is rewritten to say the same, and no model time goes to
+code already in the base branch. A review composed earlier and waiting on a post gate is left alone,
+since GitHub still takes a review on a merged pull request and that pass was already paid for.
+
 ## Inline comments and anchoring
 
 `GET /pulls/N/files` is the only trustworthy source of where a comment may go. The harness derives the
@@ -443,7 +451,9 @@ A gate message is one message: the pull request as a link, the verdict line in b
 one numbered line per finding. The numbers are buttons. Tapping one edits the message into that finding's
 full text with a back button, which keeps a twelve-finding review readable on a phone screen instead of
 spreading it over a dozen thread replies. The decision buttons stay available in the finding view, and the
-first decision clears the keyboard so a stale message cannot be tapped twice. Telegram cuts a message at
+first decision clears the keyboard so a stale message cannot be tapped twice. A gate the loop withdraws
+because its pull request merged is rewritten the same way, and ends on the reason: `withdrawn by harness:
+pull request merged at 2026-10-26 08:42Z`. Telegram cuts a message at
 4096 characters; a longer summary is truncated, and every finding stays reachable by number.
 
 Approving a task gate turns that same message into a progress display, because ten silent minutes after an
