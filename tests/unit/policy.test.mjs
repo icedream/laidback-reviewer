@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { composeReview, planBanner, validateBannerSlot, assembleBody } from "../../src/proposal/policy.mjs";
+import { composeReview, planBanner, validateBannerSlot, assembleBody, flattenLoneListItem } from "../../src/proposal/policy.mjs";
 import { baseConfig } from "../helpers/run-env.mjs";
 
 const cfg = () => baseConfig({ dir: "/tmp" });
@@ -168,6 +168,34 @@ test("a requested change can be left unsubmitted too", () => {
 
   assert.equal(composed.event, "PENDING");
   assert.equal("event" in composed.payload, false);
+});
+
+test("a list with one item is flattened where it is composed", () => {
+  const composed = composeReview({
+    proposal: proposal({ body: "LGTM.\n\n1. The tenant-name rules now live in two places, and both sit at 20 characters today." }),
+    cfg: cfg(),
+    files,
+    headSha: "abc",
+  });
+
+  assert.equal(composed.payload.body.includes("1. The tenant-name rules"), false);
+  assert.match(composed.payload.body, /^LGTM\.\n\nThe tenant-name rules now live in two places/s);
+  assert.match(composed.notes.join("\n"), /a list with a single item was flattened/);
+});
+
+test("a real list, a task list, and a numbered line in a code fence are left alone", () => {
+  const two = flattenLoneListItem("LGTM.\n\n1. first\n2. second");
+  assert.equal(two.changed, false);
+
+  const task = flattenLoneListItem("LGTM.\n\n- [ ] still to check the rollback");
+  assert.equal(task.changed, false, "a one-item checklist is a checklist");
+
+  const fenced = flattenLoneListItem("LGTM.\n\n```\n1. not a list item\n```\n");
+  assert.equal(fenced.changed, false, "a numbered line inside a fence is not a list");
+
+  const bullet = flattenLoneListItem("LGTM.\n\n- one point, wrapped onto a second line\n  with its continuation indented under the text");
+  assert.equal(bullet.changed, true);
+  assert.equal(bullet.body, "LGTM.\n\none point, wrapped onto a second line\nwith its continuation indented under the text");
 });
 
 test("an empty proposal is refused instead of posting a blank review", () => {

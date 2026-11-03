@@ -229,6 +229,47 @@ export function validateBannerSlot(original, rewritten, { label = "banner", draf
   return { ok: true, reason: "" };
 }
 
+const LIST_ITEM = /^ {0,3}(?:[-*+]|\d{1,3}[.)])[ \t]+/;
+const TASK_ITEM = /^ {0,3}(?:[-*+]|\d{1,3}[.)])[ \t]+\[[ xX]?\]/;
+const FENCE = /^\s*(?:```|~~~)/;
+
+/**
+ * Flatten a list that has one item.
+ *
+ * A lone "1." renders as a list of one: it announces a first point of several and leaves the reader
+ * waiting for the second. The marker is formatting rather than a claim, so the harness fixes it where it
+ * already fixes citation form. Two items is a list, and stays one.
+ *
+ * @returns {{ body: string, changed: boolean }}
+ */
+export function flattenLoneListItem(body) {
+  const lines = String(body ?? "").split("\n");
+  const isListItem = (line) => LIST_ITEM.test(line) && !TASK_ITEM.test(line);
+
+  let insideFence = false;
+  const items = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    if (FENCE.test(lines[index])) {
+      insideFence = !insideFence;
+      continue;
+    }
+    if (!insideFence && isListItem(lines[index])) items.push(index);
+  }
+  if (items.length !== 1) return { body, changed: false };
+
+  const [at] = items;
+  const marker = LIST_ITEM.exec(lines[at])[0];
+  const out = [...lines];
+  out[at] = lines[at].slice(marker.length).trimStart();
+  // A wrapped item's continuation sits under its text. Without the marker that indent would read as the
+  // paragraph's own, so it comes off with the marker.
+  for (let follow = at + 1; follow < out.length && /^\s/.test(out[follow]); follow += 1) {
+    const indent = /^\s*/.exec(out[follow])[0].length;
+    out[follow] = out[follow].slice(Math.min(marker.length, indent));
+  }
+  return { body: out.join("\n").replace(/\n{3,}/g, "\n\n").trim(), changed: true };
+}
+
 /**
  * @param proposal   what the agent proposed (body, verdict, comments, blocking, gates)
  * @param cfg        validated config
@@ -318,6 +359,11 @@ export function composeReview({ proposal, cfg, files, headSha, owner, repo, bann
   }
 
   let bodyText = cite(proposal.body ?? "");
+  const flattened = flattenLoneListItem(bodyText);
+  if (flattened.changed) {
+    bodyText = flattened.body;
+    notes.push("body: a list with a single item was flattened to a paragraph");
+  }
   for (const slot of inPlace) {
     if (!reworded.includes(slot)) continue;
     const text = (slots[slot] ?? "").trim();

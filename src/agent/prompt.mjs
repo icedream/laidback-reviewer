@@ -213,6 +213,7 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, r
       "is too long.",
       "Wording: write the way the author would say it. The harness's shorthand is not review prose - the",
       "commit under review is the current commit or a short SHA, never this head.",
+      "A list of one is a paragraph: either write the point as a sentence, or have a second point.",
     ].join("\n"),
   );
 
