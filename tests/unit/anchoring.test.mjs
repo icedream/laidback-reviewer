@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { anchorComment, commentableRuns, parsePatch } from "../../src/github/anchoring.mjs";
+import { anchorComment, commentableRuns, fitSuggestionAnchor, parsePatch } from "../../src/github/anchoring.mjs";
 
 const patch = [
   "@@ -1,3 +1,6 @@",
@@ -76,4 +76,52 @@ test("start_line after line is dropped rather than swapped", () => {
   const result = anchorComment({ path: "a.go", start_line: 4, line: 2, body: "x" }, files);
   assert.equal(result.status, "dropped");
   assert.match(result.note, /start_line 4 after line 2/);
+});
+/**
+ * The shape that broke a real review: one WHERE line changed inside a statement whose other lines are
+ * unchanged context, which is a commentable range the length of the whole statement.
+ */
+const statement = [
+  "@@ -22,4 +22,4 @@",
+  " UPDATE principals SET type = sqlc.narg('type')::text, type = type",
+  " email = CASE WHEN sqlc.arg('email_set')::boolean THEN sqlc.narg('email')::text ELSE email END,",
+  " disabled = COALESCE(sqlc.narg('disabled')::boolean, disabled)",
+  "-WHERE id = sqlc.arg('id')::uuid OR name = sqlc.arg('id')::text RETURNING *;",
+  "+WHERE id = sqlc.arg('id')::uuid OR name = sqlc.arg('ref_name')::text RETURNING *;",
+].join("\n");
+const statementFiles = [{ filename: "q.sql", status: "modified", patch: statement }];
+
+test("a suggestion is only safe when it covers its anchor", () => {
+  const over = { path: "q.sql", start_line: 22, line: 25, body: "call the arg name" };
+  const fitted = fitSuggestionAnchor({ comment: over, suggestion: "WHERE id = sqlc.arg('id')::uuid OR name = sqlc.arg('name')::text RETURNING *;", files: statementFiles });
+
+  assert.equal(fitted.status, "fitted");
+  assert.equal(fitted.comment.line, 25);
+  assert.equal(fitted.comment.start_line, undefined, "a single line needs no range");
+  assert.match(fitted.note, /spans 4 lines for a 1-line suggestion, narrowed to 25/);
+});
+
+test("a suggestion that repeats the context keeps its anchor", () => {
+  const wide = [
+    "email = CASE WHEN sqlc.arg('email_set')::boolean THEN sqlc.narg('email')::text ELSE email END,",
+    "disabled = COALESCE(sqlc.narg('disabled')::boolean, disabled)",
+    "WHERE id = sqlc.arg('id')::uuid OR name = sqlc.arg('name')::text RETURNING *;",
+  ].join("\n");
+  const result = fitSuggestionAnchor({ comment: { path: "q.sql", start_line: 23, line: 25, body: "x" }, suggestion: wide, files: statementFiles });
+
+  assert.equal(result.status, "ok");
+  assert.equal(result.comment.start_line, 23);
+});
+
+test("a suggestion that would delete unmentioned lines is refused", () => {
+  const result = fitSuggestionAnchor({ comment: { path: "q.sql", start_line: 22, line: 25, body: "x" }, suggestion: "two\nlines", files: statementFiles });
+
+  assert.equal(result.status, "dropped");
+  assert.match(result.note, /covers 1 changed line\(s\) of them, so applying it would delete code/);
+});
+
+test("a suggestion wider than its anchor is an insertion, not a deletion", () => {
+  const result = fitSuggestionAnchor({ comment: { path: "q.sql", line: 25, body: "x" }, suggestion: "WHERE id = sqlc.arg('id')::uuid\n  OR name = sqlc.arg('name')::text\nRETURNING *;", files: statementFiles });
+
+  assert.equal(result.status, "ok");
 });

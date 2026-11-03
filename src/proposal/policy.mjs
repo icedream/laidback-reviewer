@@ -6,7 +6,7 @@
  * requested change can block one, and a model should not move either by itself.
  */
 
-import { anchorComment } from "../github/anchoring.mjs";
+import { anchorComment, fitSuggestionAnchor } from "../github/anchoring.mjs";
 import { normaliseCitations } from "./links.mjs";
 
 export const VERDICT_EVENT = {
@@ -240,8 +240,18 @@ export function composeReview({ proposal, cfg, files, headSha, owner, repo, bann
       notes.push(`anchored comment: ${result.note}`);
     }
     if (proposed.suggestion) {
-      // A suggestion block has to be the fenced last thing in the comment body.
-      result.comment.body = `${result.comment.body.trim()}\n\n\`\`\`suggestion\n${proposed.suggestion}\n\`\`\``;
+      const fit = fitSuggestionAnchor({ comment: result.comment, suggestion: proposed.suggestion, files });
+      if (fit.status === "dropped") {
+        // The finding stands on its own text; only the fenced replacement would delete lines the
+        // finding never mentions, so the comment posts without it.
+        notes.push(`dropped suggestion: ${fit.note}`);
+      } else {
+        if (fit.status === "fitted") notes.push(`suggestion anchor: ${fit.note}`);
+        // A suggestion block has to be the fenced last thing in the comment body.
+        fit.comment.body = `${fit.comment.body.trim()}\n\n\`\`\`suggestion\n${proposed.suggestion}\n\`\`\``;
+        anchored.push(fit.comment);
+        continue;
+      }
     }
     anchored.push(result.comment);
   }

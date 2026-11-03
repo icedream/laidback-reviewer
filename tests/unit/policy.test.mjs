@@ -91,6 +91,36 @@ test("a suggestion is appended as a fenced suggestion block", () => {
     headSha: "abc",
   });
   assert.match(composed.payload.comments[0].body, /```suggestion\nreturn \(q\.Page - 1\) \* q\.PerPage\n```$/);
+  assert.equal(composed.payload.comments[0].line, 2);
+});
+
+test("a one-line suggestion anchored over context narrows to the changed line", () => {
+  const composed = composeReview({
+    proposal: proposal({ comments: [{ path: "a.go", start_line: 1, line: 3, body: "off by one", suggestion: "return (q.Page - 1) * q.PerPage" }] }),
+    cfg: cfg(),
+    files,
+    headSha: "abc",
+  });
+
+  const [comment] = composed.payload.comments;
+  assert.equal(comment.line, 2, "GitHub would otherwise replace lines 1 and 3 with the one line");
+  assert.equal(comment.start_line, undefined);
+  assert.match(composed.payload.comments[0].body, /```suggestion/);
+  assert.match(composed.notes.join("\n"), /suggestion anchor: a\.go:1-3 spans 3 lines for a 1-line suggestion, narrowed to 2/);
+});
+
+test("a suggestion that cannot cover its anchor posts the finding without the fence", () => {
+  const composed = composeReview({
+    proposal: proposal({ comments: [{ path: "a.go", start_line: 1, line: 3, body: "split this across two lines", suggestion: "first\nsecond" }] }),
+    cfg: cfg(),
+    files,
+    headSha: "abc",
+  });
+
+  const [comment] = composed.payload.comments;
+  assert.equal(comment.body.includes("suggestion"), false, "no fenced block, so nothing is silently deleted");
+  assert.match(comment.body, /split this across two lines/);
+  assert.match(composed.notes.join("\n"), /dropped suggestion: .*covers 1 changed line\(s\)/);
 });
 
 test("an empty proposal is refused instead of posting a blank review", () => {

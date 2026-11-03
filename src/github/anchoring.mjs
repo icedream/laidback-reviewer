@@ -182,3 +182,45 @@ export function commentableLines(file) {
     return lines;
   });
 }
+
+/**
+ * Check a suggestion block against the range it is anchored to.
+ *
+ * GitHub replaces every anchored line with the fenced text, and context lines are commentable, so a
+ * one-line fix anchored over a four-line range silently deletes three clauses the reviewer never
+ * mentioned. A suggestion is only safe when it is at least as wide as its anchor, or when it matches
+ * the changed lines of that anchor exactly.
+ *
+ * Returns { status: "ok" | "fitted" | "dropped", comment, note }. `comment` is a copy; the fence is
+ * only appended for the first two.
+ */
+export function fitSuggestionAnchor({ comment, suggestion, files }) {
+  const span = (comment.start_line ?? comment.line) <= comment.line ? comment.line - (comment.start_line ?? comment.line) + 1 : 1;
+  const lines = String(suggestion ?? "").replace(/\s+$/, "").split("\n");
+  if (span <= lines.length) return { status: "ok", comment };
+
+  const file = findFile(files, comment.path);
+  const from = comment.start_line ?? comment.line;
+  const added = parsePatch(file?.patch ?? "")
+    .flatMap((hunk) => hunk.lines)
+    .filter((line) => line.type === "add" && line.newLine >= from && line.newLine <= comment.line)
+    .map((line) => line.newLine);
+
+  // The text stands for the changed lines and nothing else: narrow the anchor to them.
+  const contiguous = added.length > 0 && added.every((line, index) => line === added[0] + index);
+  if (contiguous && added.length === lines.length) {
+    const fitted = { ...comment, start_line: added[0], line: added.at(-1) };
+    if (fitted.start_line === fitted.line) delete fitted.start_line;
+    return {
+      status: "fitted",
+      comment: fitted,
+      note: `${comment.path}:${from}-${comment.line} spans ${span} lines for a ${lines.length}-line suggestion, narrowed to ${fitted.start_line ? `${fitted.start_line}-` : ""}${fitted.line}`,
+    };
+  }
+
+  return {
+    status: "dropped",
+    comment,
+    note: `${comment.path}:${from}-${comment.line} spans ${span} lines, the ${lines.length}-line suggestion covers ${added.length} changed line(s) of them, so applying it would delete code the finding does not mention`,
+  };
+}

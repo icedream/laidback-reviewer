@@ -30,6 +30,8 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, r
       `Checkout: ${checkoutDir}`,
       `Work in a detached temporary worktree for branch state; never change this tree, and never push.`,
       `Changed files (from the API diff, with the line numbers GitHub accepts for inline comments):`,
+      `A suggestion replaces every line of its anchor: anchor exactly the lines it rewrites, or repeat the`,
+      `unchanged ones inside the fence. A one-line suggestion over a wider anchor is a deletion.`,
       ...files.map((file) => {
         const lines = commentableLines(file);
         const shown = lines.length > 24 ? `${lines.slice(0, 12).join(",")} … ${lines.slice(-12).join(",")} (${lines.length} total)` : lines.join(",");
