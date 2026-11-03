@@ -22,7 +22,7 @@ import { rephraseBanner } from "./agent/rephrase.mjs";
 import { REVIEW_TOOLS, createReviewSession } from "./agent/runtime.mjs";
 import { createProposalCollector, createReviewTools } from "./agent/tools.mjs";
 import { comparisonDir, configureGitAuth, configureGoModules, newRunId } from "./checkout.mjs";
-import { resolveLintTool } from "./tools/golangci-lint.mjs";
+import { detectLintPins, resolveLintTool } from "./tools/golangci-lint.mjs";
 import { stageReusableWorkflows } from "./tools/reusable-workflows.mjs";
 import { pickContext } from "./context/carried-over.mjs";
 import { resolveStack } from "./context/stack.mjs";
@@ -167,9 +167,14 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   const contract = nonInteractiveContract({ cfg, checkoutDir, prRef: pr.repository });
 
   // The linter is resolved before the session starts so the prompt can say which binary to use. A
-  // repository pinned to a major the image does not carry otherwise reads as a broken branch.
-  const lint = await resolveLintTool({ cfg, dir: checkoutDir, log });
-  if (lint.reusable?.length) lint.reusableStaged = await stageReusableWorkflows({ client, reusable: lint.reusable, compareDir, log });
+  // repository pinned to a major the image does not carry otherwise reads as a broken branch. A pin that
+  // lives in a shared workflow is only visible once that workflow has been read from its own repository,
+  // so the staging comes first and the plan gets its text.
+  const detectedPins = detectLintPins(checkoutDir);
+  let reusableStaged = [];
+  if (detectedPins.reusable.length) reusableStaged = await stageReusableWorkflows({ client, reusable: detectedPins.reusable, compareDir, log });
+  const lint = await resolveLintTool({ cfg, dir: checkoutDir, stagedReusable: reusableStaged, log });
+  if (reusableStaged.length) lint.reusableStaged = reusableStaged;
 
   // Context is resolved before the session is built, because the choice decides which session file
   // the agent starts from. The stack walk answers "which PR is this stacked on", which is the one

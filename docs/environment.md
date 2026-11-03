@@ -119,10 +119,19 @@ The image ships `golangci-lint` v2, pinned by `GOLANGCI_LINT_VERSION` at build t
 repositories pin their own versions, and a v1 binary cannot read a v2 config at all. With `toolchain.golangciLint: auto` the harness reads the pins from the repository
 (CI workflow first, then `.tool-versions`/`.mise.toml`/Makefile), notes the schema version the config
 file declares, and installs the pinned release into `toolchain.installDir` without touching the image.
+
+A repository that calls a shared workflow (`uses: example-corp/workflows/.github/workflows/go-test.yaml@v3`)
+frequently passes no version at all, because CI runs the default of a `workflow_call` input in the
+repository that owns that file. Those workflows are read through the GitHub contents API at the ref the
+caller pins, before the linter is planned, and the version is recorded with the owner and ref it came
+from. A version the caller passes itself still wins over an inherited default; a shared workflow that
+cannot be read falls back to the image's copy and says so in the run record.
+
 Every hop of the download is checked against `tools.allowHosts`, which is why the example config lists
 the GitHub asset CDN as well as `github.com`. Set `golangciLint: off` to use only the image's copy, or
 an explicit tag to force one.
 
 A linter that will not start is a tooling gap, not a defect in the branch: the task prompt says so, and
-the expected outcome is a gate recorded as `not_run` with the reason. When the pins disagree, the
-disagreement is named in the prompt and in the run record.
+the expected outcome is a gate recorded as `not_run` with the reason. When the pins in the tier that
+decides disagree, the disagreement is named in the prompt and in the run record; an inherited default the
+caller deliberately overrides is not a disagreement.

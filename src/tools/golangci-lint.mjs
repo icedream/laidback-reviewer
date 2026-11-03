@@ -2,8 +2,9 @@
  * Which golangci-lint a repository expects.
  *
  * Images pin one release, repositories pin another, and a v1 binary cannot read a v2 config. The pins
- * are read from the repository and the pinned release is installed into a writable cache, so a
- * missing linter stays a tooling fact rather than becoming a review finding.
+ * are read from the repository, or from the default of a shared workflow it calls when the repository
+ * passes none, and the pinned release is installed into a writable cache, so a missing linter stays a
+ * tooling fact rather than becoming a review finding.
  */
 
 import fs from "node:fs";
@@ -28,6 +29,12 @@ const OTHER_SOURCES = [
   { file: ".mise.toml", pattern: /golangci-lint\s*=\s*["']?(v?\d[\w.\-]*)/g },
 ];
 
+// What a shared workflow calls the linter version, matched case-insensitively because the owner writes
+// input names in whichever case its other inputs use.
+const LINT_INPUT_NAME = /^(?:golangci[-_]?lint[-_]?version|lint[-_]?version|golangciLintVersion|lintVersion)$/i;
+
+const withV = (version) => (version.startsWith("v") ? version : `v${version}`);
+
 function readIf(file) {
   try {
     return fs.readFileSync(file, "utf8");
@@ -47,10 +54,59 @@ export function detectConfigSchemaMajor(dir) {
 }
 
 /**
- * Every version the repository pins, in the order they were found.
- * CI pins win over a Makefile, because the review's gate should mirror what CI runs.
+ * The version a shared workflow states for itself, read from the file that owns it.
+ *
+ * A caller usually passes nothing, so the version CI runs is the `default:` of a workflow_call input, or an
+ * env entry, in the repository the workflow lives in. That file is not in the reviewed checkout, so the
+ * caller has to hand over the text it read.
  */
-export function detectLintPins(dir) {
+export function parseReusableLintPins(text, source) {
+  const pins = [];
+  const lines = String(text ?? "").split(/\r?\n/);
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const key = lines[i].match(/^(\s*)["']?([A-Za-z0-9_-]+)["']?\s*:\s*(.*)$/);
+    if (!key || !LINT_INPUT_NAME.test(key[2])) continue;
+    const [, indent, name, rest] = key;
+
+    const inline = rest.match(/^(v?\d+\.\d+(?:\.\d+)?)/);
+    if (inline) {
+      pins.push({ version: withV(inline[1]), source: `${source}: ${name}`, fromSharedWorkflow: true });
+      continue;
+    }
+    // A workflow_call input keeps its version on a line below its name, still under that key.
+    for (let j = i + 1; j < lines.length; j += 1) {
+      const line = lines[j];
+      if (!line.trim()) continue;
+      if (line.match(/^\s*/)[0].length <= indent.length) break;
+      const declared = line.match(/^\s*["']?default["']?\s*:\s*["']?(v?\d+\.\d+(?:\.\d+)?)/i);
+      if (declared) {
+        pins.push({ version: withV(declared[1]), source: `${source}: ${name} default`, fromSharedWorkflow: true });
+        break;
+      }
+    }
+  }
+
+  // An env entry and the action's own version input are spelled the same in a shared workflow as anywhere.
+  for (const { name: label, pattern } of WORKFLOW_SOURCES) {
+    for (const match of String(text ?? "").matchAll(pattern)) {
+      pins.push({ version: withV(match[1]), source: `${source}: ${label}`, fromSharedWorkflow: true });
+    }
+  }
+
+  const seen = new Set();
+  return pins.filter((pin) => !seen.has(pin.version) && seen.add(pin.version));
+}
+
+/**
+ * Every version the repository pins, in the order they were found.
+ * CI pins win over a Makefile, because the review's gate should mirror what CI runs, and a version the
+ * repository passes wins over the default in the shared workflow it calls.
+ *
+ * `reusableTexts` are the called workflows already read from their own repository:
+ * `[{ workflow, ref, text }]`.
+ */
+export function detectLintPins(dir, reusableTexts = []) {
   const pins = [];
   const reusable = [];
   const workflowDir = path.join(dir, ".github", "workflows");
@@ -84,15 +140,24 @@ export function detectLintPins(dir) {
     }
   }
 
+  const inherited = [];
+  for (const entry of reusableTexts) {
+    if (!entry?.text) continue;
+    inherited.push(...parseReusableLintPins(entry.text, `${entry.workflow}@${entry.ref}`));
+  }
+
   const configSchema = detectConfigSchemaMajor(dir);
-  const chosen = pins[0] ?? null;
-  const versions = [...new Set(pins.map((pin) => pin.version))];
+  // Only the tier that decides gets compared against itself: a repository that overrides the input does
+  // not disagree with the default it replaces.
+  const deciding = pins.length ? pins : inherited;
+  const chosen = deciding[0] ?? null;
+  const versions = [...new Set(deciding.map((pin) => pin.version))];
 
   // A v1 pin against a v2 config is the common trap: the linter refuses to load the file and the
   // gate looks like a code problem when it is a tooling problem.
   const incompatible = configSchema ? versions.filter((version) => majorOf(version) !== configSchema.major) : [];
 
-  return { pins, chosen, configSchema, reusable, conflict: versions.length > 1 || incompatible.length > 0, incompatible };
+  return { pins: [...pins, ...inherited], chosen, configSchema, reusable, conflict: versions.length > 1 || incompatible.length > 0, incompatible };
 }
 
 const majorOf = (version) => String(version).replace(/^v/, "").split(".")[0];
@@ -104,11 +169,22 @@ function reusableNote(reusable) {
 }
 
 /**
+ * The called workflows the harness already read, as text. With `preferRepoVersion: false` the image's
+ * copy is wanted either way, so a shared default is not worth reading.
+ */
+function reusableTexts(stagedReusable, cfg) {
+  if (cfg.toolchain.preferRepoVersion === false) return [];
+  return (stagedReusable ?? [])
+    .filter((entry) => entry.path)
+    .map((entry) => ({ workflow: entry.workflow, ref: entry.ref, text: readIf(entry.path) }));
+}
+
+/**
  * What the harness should provide.
  * `off` leaves the image's version alone, `image` means nothing extra is needed, `install` means the
  * pinned release is fetched into toolchain.installDir.
  */
-export function planLint({ cfg, dir }) {
+export function planLint({ cfg, dir, stagedReusable = [] }) {
   const setting = cfg.toolchain.golangciLint;
   if (setting === "off") return { mode: "off", version: null, source: "toolchain.golangciLint=off" };
   if (setting !== "auto" && TAG.test(setting)) {
@@ -116,10 +192,16 @@ export function planLint({ cfg, dir }) {
     return { mode: "install", version, source: "toolchain.golangciLint" };
   }
 
-  const detected = detectLintPins(dir);
+  const detected = detectLintPins(dir, reusableTexts(stagedReusable, cfg));
   if (!detected.chosen) return { mode: "image", version: null, source: "no pin found", detected };
   if (!cfg.toolchain.preferRepoVersion) return { mode: "image", version: null, source: "toolchain.preferRepoVersion=false", detected };
-  return { mode: "install", version: detected.chosen.version, source: detected.chosen.source, detected };
+  return {
+    mode: "install",
+    version: detected.chosen.version,
+    source: detected.chosen.source,
+    inherited: Boolean(detected.chosen.fromSharedWorkflow),
+    detected,
+  };
 }
 
 export function releaseUrl({ downloadBaseUrl, version, platform = process.platform, arch = process.arch }) {
@@ -226,12 +308,13 @@ function findBinary(root) {
  * Everything the prompt needs to say about linting: what the repository pins, what the image has,
  * and what the harness installed.
  */
-export async function resolveLintTool({ cfg, dir, execImpl, log = () => {} }) {
-  const plan = planLint({ cfg, dir });
+export async function resolveLintTool({ cfg, dir, stagedReusable = [], execImpl, log = () => {} }) {
+  const plan = planLint({ cfg, dir, stagedReusable });
   const summary = {
     mode: plan.mode,
     requestedVersion: plan.version,
     source: plan.source,
+    inherited: Boolean(plan.inherited),
     configSchema: plan.detected?.configSchema ?? null,
     pins: plan.detected?.pins ?? [],
     conflict: Boolean(plan.detected?.conflict),

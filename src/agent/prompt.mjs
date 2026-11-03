@@ -193,8 +193,13 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, r
  */
 function lintBlock(lint) {
   const lines = [];
-  if (lint.requestedVersion) lines.push(`Linting. This repository pins golangci-lint ${lint.requestedVersion} in ${lint.source}.`);
-  else lines.push(`Linting. No linter version is pinned (${lint.source}), so the image's golangci-lint is what you get.`);
+  if (lint.requestedVersion) {
+    lines.push(
+      lint.inherited
+        ? `Linting. The repository passes no linter version, but the shared workflow it calls pins ${lint.requestedVersion}: ${lint.source}.`
+        : `Linting. This repository pins golangci-lint ${lint.requestedVersion} in ${lint.source}.`,
+    );
+  } else lines.push(`Linting. No linter version is pinned (${lint.source}), so the image's golangci-lint is what you get.`);
 
   if (lint.configSchema) lines.push(`Its config ${lint.configSchema.source} declares schema version ${lint.configSchema.major}, so only a matching major can load it.`);
   if (lint.installedPath) lines.push(`Use ${lint.installedPath} for the lint gate; the harness installed it for this run.`);

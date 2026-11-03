@@ -12,7 +12,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { detectConfigSchemaMajor, detectLintPins, ensureGolangciLint, planLint, releaseUrl, resolveLintTool } from "../../src/tools/golangci-lint.mjs";
+import { detectConfigSchemaMajor, detectLintPins, ensureGolangciLint, parseReusableLintPins, planLint, releaseUrl, resolveLintTool } from "../../src/tools/golangci-lint.mjs";
 
 function tree(files) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "laidback-lint-"));
@@ -267,6 +267,146 @@ test("a shared workflow takes the version under its environment name", () => {
     assert.equal(found.chosen.version, "v2.12.2");
     assert.match(found.chosen.source, /GOLANGCI_LINT_VERSION/);
     assert.equal(found.reusable.length, 1, "one shared workflow, however many jobs call it");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * The shared workflow the fixture repositories call: the caller passes nothing, and the version CI
+ * runs is the default of a `workflow_call` input in the repository that owns the file.
+ */
+const SHARED_GO_TEST = `name: Go Test
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: "The type of machine to run the job on (default ubuntu-latest)"
+        required: false
+        type: string
+        default: "ubuntu-latest"
+      GOLANGCI_LINT_VERSION:
+        description: "The GolangCI Lint version to test with"
+        type: string
+        default: v2.12.2
+
+jobs:
+  lint:
+    runs-on: "\${{ inputs.runs-on }}"
+    steps:
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: \${{ inputs.GOLANGCI_LINT_VERSION }}
+          only-new-issues: true
+`;
+
+const CALLS_SHARED = "jobs:\n  test:\n    uses: example-corp/workflows/.github/workflows/go-test.yaml@v3\n    secrets: inherit\n";
+const asText = (text) => [{ workflow: "example-corp/workflows/.github/workflows/go-test.yaml", ref: "v3", text }];
+
+test("the default in the shared workflow is the pin when the caller passes no version", () => {
+  const dir = tree({ ".github/workflows/test.yaml": CALLS_SHARED });
+  try {
+    const found = detectLintPins(dir, asText(SHARED_GO_TEST));
+
+    assert.equal(found.chosen.version, "v2.12.2");
+    assert.equal(found.chosen.fromSharedWorkflow, true);
+    assert.match(found.chosen.source, /example-corp\/workflows\/\.github\/workflows\/go-test\.yaml@v3: GOLANGCI_LINT_VERSION default/);
+    assert.equal(found.conflict, false, "one version in the deciding tier is not a conflict");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a version the caller passes beats the shared default, and is not a conflict with it", () => {
+  const dir = tree({
+    ".github/workflows/test.yaml": `${CALLS_SHARED}    with:\n      GOLANGCI_LINT_VERSION: v2.11.0\n`,
+  });
+  try {
+    const found = detectLintPins(dir, asText(SHARED_GO_TEST));
+
+    assert.equal(found.chosen.version, "v2.11.0");
+    assert.equal(found.chosen.fromSharedWorkflow, undefined, "the repository's own pin wins");
+    assert.equal(found.conflict, false);
+    assert.deepEqual(found.pins.map((pin) => pin.version), ["v2.11.0", "v2.12.2"], "both stay in the record");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a shared workflow can state the version as an env entry or an action input", () => {
+  const envForm = "jobs:\n  lint:\n    env:\n      GOLANGCI_LINT_VERSION: v2.15.0\n    steps:\n      - uses: golangci/golangci-lint-action@v9\n";
+  const actionForm = "jobs:\n  lint:\n    steps:\n      - uses: golangci/golangci-lint-action@v9\n        with:\n          version: v2.14.1\n";
+
+  assert.deepEqual(parseReusableLintPins(envForm, "acme/workflows/.github/workflows/go.yml@v3").map((pin) => `${pin.version} ${pin.source}`), [
+    "v2.15.0 acme/workflows/.github/workflows/go.yml@v3: GOLANGCI_LINT_VERSION",
+  ]);
+  assert.deepEqual(parseReusableLintPins(actionForm, "acme/workflows/.github/workflows/go.yml@v3").map((pin) => pin.version), ["v2.14.1"]);
+});
+
+test("two shared workflows that name different versions is a conflict", () => {
+  const dir = tree({
+    ".github/workflows/test.yaml": CALLS_SHARED,
+    ".github/workflows/nightly.yaml": "jobs:\n  lint:\n    uses: example-corp/workflows/.github/workflows/go-lint.yaml@v2\n",
+  });
+  try {
+    const found = detectLintPins(dir, [
+      ...asText(SHARED_GO_TEST),
+      { workflow: "example-corp/workflows/.github/workflows/go-lint.yaml", ref: "v2", text: "on:\n  workflow_call:\n    inputs:\n      lint-version:\n        default: v2.9.0\n" },
+    ]);
+
+    assert.equal(found.conflict, true);
+    assert.deepEqual(found.pins.filter((pin) => pin.fromSharedWorkflow).map((pin) => pin.version), ["v2.12.2", "v2.9.0"]);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an input whose default is not a version pins nothing", () => {
+  const dir = tree({ ".github/workflows/test.yaml": CALLS_SHARED });
+  try {
+    const found = detectLintPins(dir, asText("on:\n  workflow_call:\n    inputs:\n      GOLANGCI_LINT_VERSION:\n        type: string\n        default: \"\"\n      runs-on:\n        default: ubuntu-latest\n"));
+
+    assert.equal(found.chosen, null);
+    assert.equal(found.pins.length, 0);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the shared default is read from the file the harness already staged", async () => {
+  const dir = tree({ ".github/workflows/test.yaml": CALLS_SHARED });
+  const stagedDir = path.join(dir, "refs", "reusable", "example-corp-workflows@v3");
+  fs.mkdirSync(stagedDir, { recursive: true });
+  fs.writeFileSync(path.join(stagedDir, "go-test.yaml"), SHARED_GO_TEST);
+  try {
+    const resolved = await resolveLintTool({
+      cfg: cfgFor(dir),
+      dir,
+      stagedReusable: [{ workflow: "example-corp/workflows/.github/workflows/go-test.yaml", ref: "v3", path: path.join(stagedDir, "go-test.yaml"), note: "" }],
+      log: () => {},
+    });
+
+    assert.equal(resolved.mode, "install");
+    assert.equal(resolved.requestedVersion, "v2.12.2");
+    assert.equal(resolved.inherited, true);
+    assert.match(resolved.source, /go-test\.yaml@v3/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a shared workflow that could not be read still falls back to the image", async () => {
+  const dir = tree({ ".github/workflows/test.yaml": CALLS_SHARED });
+  try {
+    const resolved = await resolveLintTool({
+      cfg: cfgFor(dir),
+      dir,
+      stagedReusable: [{ workflow: "example-corp/workflows/.github/workflows/go-test.yaml", ref: "v3", path: null, note: "HTTP 404" }],
+      log: () => {},
+    });
+
+    assert.equal(resolved.mode, "image");
+    assert.match(resolved.note, /where the default may live/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

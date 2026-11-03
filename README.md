@@ -17,8 +17,9 @@ policy layer and optionally a queue you approve before anything is posted.
 - **A real checkout.** A clone plus a detached worktree per review, with the base revision fetched
   alongside so the diff is three-dot and a finding can be labelled introduced or pre-existing.
 - **The project's own gates.** `go test`, `gofmt`, and `golangci-lint` at the version the repository
-  pins in its workflow, installed into scratch per run rather than baked into the image. A gate that
-  cannot start is recorded as `not_run` with the reason instead of blamed on the branch.
+  pins in its workflow, or the default of the shared workflow it calls, installed into scratch per run
+  rather than baked into the image. A gate that cannot start is recorded as `not_run` with the reason
+  instead of blamed on the branch.
 - **Anchored comments.** Inline findings carry `start_line` and `line`, narrowed to the ranges GitHub
   accepts for that file, and re-resolved against the current head immediately before posting, so a push
   between composing and approving does not land a comment on the wrong line.
