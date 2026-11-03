@@ -30,6 +30,7 @@ import { HeadMovedError, submitReview } from "./github/poster.mjs";
 import { createGate, renderGateSummary } from "./gate/gate.mjs";
 import { writeArtifact } from "./proposal/artifact.mjs";
 import { composeReview, planBanner } from "./proposal/policy.mjs";
+import { findRewrittenBodies } from "./proposal/edits.mjs";
 import { createLabClient } from "./lab/client.mjs";
 
 /** The task gate names the pull request and links it, so the message says which review it belongs to. */
@@ -126,6 +127,13 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   // the repository from the beginning.
   log(`already on the PR: ${reviews.length} review(s), ${comments.length} inline comment(s), ${discussion.length} discussion comment(s)`);
 
+  // A review body the operator rewrote after posting is a correction of this bot's shape, not of its
+  // findings. Only the pass over this PR is told, so one edit never becomes a standing preference.
+  const rewritten = findRewrittenBodies({ reviews, posted: store.postedReviewsForPr({ owner, repo, pr: prNumber }) });
+  if (rewritten.length) {
+    log(`${rewritten.length} review body(s) here were rewritten by the operator since this bot posted them`);
+  }
+
   // A head is reviewed once. What reopens it is a fresh review request, carried in by discovery, or a
   // direct invocation, which is the operator asking for another pass by hand.
   if (store.alreadyHandled({ owner, repo, pr: prNumber, head_sha: headSha }) && !task.reRequest && !task.manual) {
@@ -202,7 +210,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     files,
     checkoutDir,
     headSha,
-    prior: { reviews, comments, discussion },
+    prior: { reviews, comments, discussion, rewrittenReviewIds: rewritten.map((entry) => entry.githubReviewId) },
     reRequest: earlierPass,
     compareDir,
     writableRoots,
@@ -348,6 +356,9 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   if (settle.missing.length) notes.push(`no MCP tools for ${settle.missing.join(", ")}: the server did not connect within ${cfg.agent.mcpSettleMs}ms, so the ticket was not read`);
   if (lint.note) notes.push(`lint tooling: ${lint.note}`);
   if (lint.conflict) notes.push(`linter pins disagree: ${lint.pins.map((pin) => `${pin.version} (${pin.source})`).join(", ")}`);
+  if (rewritten.length) {
+    notes.push(`the operator rewrote the body of ${rewritten.map((entry) => `review ${entry.githubReviewId}`).join(", ")} after this bot posted it: this pass was told to follow that shape`);
+  }
   if (busyRetriesUsed) notes.push(`model endpoint failed ${busyRetriesUsed} time(s); the session was asked to continue`);
   if (!collector.submitted) notes.push("the run ended without review_submit; composing from what was recorded");
   for (const entry of guard.log) {

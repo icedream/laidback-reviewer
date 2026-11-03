@@ -235,6 +235,11 @@ export function createStore(db) {
     listFailures: db.prepare(`SELECT * FROM failures ORDER BY updated_at DESC LIMIT 100`),
     getReview: db.prepare(`SELECT * FROM reviews WHERE id = @id`),
     reviewFor: db.prepare(`SELECT * FROM reviews WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha`),
+    postedReviewsForPr: db.prepare(
+      `SELECT id, head_sha, verdict, event, body, github_review_id, html_url FROM reviews
+       WHERE owner = @owner AND repo = @repo AND pr = @pr AND posted = 1 AND github_review_id IS NOT NULL
+       ORDER BY created_at`,
+    ),
     latestSessionFor: db.prepare(
       `SELECT id, session_file, created_at FROM reviews
        WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha AND session_file IS NOT NULL
@@ -383,6 +388,8 @@ export function createStore(db) {
 
     getReview: (id) => statements.getReview.get({ id }),
     reviewFor: (key) => statements.reviewFor.get(key),
+    /** What this bot posted on the PR, with the GitHub review id each body became: the baseline for an edit. */
+    postedReviewsForPr: (key) => statements.postedReviewsForPr.all(key),
     /** The transcript of the newest pass over a head, which is where a requested rerun starts from. */
     latestSessionFor: (key) => statements.latestSessionFor.get(key),
     commentsFor: (reviewId) => statements.commentsFor.all({ review_id: reviewId }),

@@ -96,11 +96,13 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, r
 
   const clip = (text, max) => String(text ?? "").replace(/\s+/g, " ").trim().slice(0, max);
   if (prior.reviews?.length || prior.comments?.length || prior.discussion?.length) {
+    const rewritten = new Set((prior.rewrittenReviewIds ?? []).map(String));
     const history = [];
     for (const review of prior.reviews ?? []) {
       // The body is the finding. Author and state alone say a review exists, which is how the same issue
       // gets reported twice on one PR.
-      const line = `review by ${review.user?.login ?? "?"} (${review.state})`;
+      const edited = rewritten.has(String(review.id));
+      const line = `review by ${review.user?.login ?? "?"} (${review.state})${edited ? ", its body rewritten on GitHub after posting" : ""}`;
       const body = clip(review.body, 2_000);
       history.push(body ? `${line}: ${body}` : line);
     }
@@ -122,6 +124,16 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, r
         "entirely when the review would otherwise be a plain approval, so a closed point goes unmentioned.",
         "Something the author answered stays answered, and re-opening it costs the reader a second pass over",
         "the same argument.",
+        ...(rewritten.size
+          ? [
+              "",
+              "One of those reviews was this bot's own, and the operator rewrote its body in GitHub before",
+              "anyone else read it. The text above is theirs. Treat the edit as the instruction it is: what they",
+              "cut stays out of this pass, and the length and shape of what they kept is what a review of this",
+              "repository looks like. Their verdict on the pull request stands as it was submitted; the edit says",
+              "nothing about it.",
+            ]
+          : []),
       ].join("\n"),
     );
   } else {

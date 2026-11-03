@@ -191,6 +191,34 @@ test("the prompt names the commit in words the author uses, not harness shorthan
   assert.equal(prompt.split("this head").length - 1, 1, "the phrase appears only in the rule that forbids it");
 });
 
+test("a review body the operator rewrote after posting reads as their instruction", () => {
+  const prompt = buildTaskPrompt({
+    pr,
+    files,
+    checkoutDir: "/work/x",
+    headSha: pr.head.sha,
+    prior: {
+      reviews: [{ id: 5751027883, user: { login: "octocat" }, state: "APPROVED", body: "The pin matches what CI runs, and the tests hold both boundaries." }],
+      comments: [],
+      rewrittenReviewIds: ["5751027883"],
+    },
+  });
+
+  assert.match(prompt, /review by octocat \(APPROVED\), its body rewritten on GitHub after posting/);
+  assert.match(prompt, /Treat the edit as the instruction it is/);
+  assert.match(prompt, /Their verdict on the pull request stands as it was submitted/);
+
+  const plain = buildTaskPrompt({
+    pr,
+    files,
+    checkoutDir: "/work/x",
+    headSha: pr.head.sha,
+    prior: { reviews: [{ id: 1, user: { login: "octocat" }, state: "APPROVED", body: "fine by me" }], comments: [] },
+  });
+  assert.doesNotMatch(plain, /Treat the edit as the instruction/);
+  assert.doesNotMatch(plain, /rewritten on GitHub/);
+});
+
 test("a second look found in the store is named without a request event", () => {
   const prompt = buildTaskPrompt({ pr, files, checkoutDir: "/work/x", headSha: pr.head.sha, reRequest: { handledAt: "2026-04-01T00:00:00.000Z" } });
   assert.match(prompt, /Re-review: the commit under review was already reviewed here at 2026-04-01T00:00:00\.000Z, and this pass is the second look at it\./);
