@@ -87,6 +87,8 @@ export function nonInteractiveContract({ cfg, checkoutDir, prRef }) {
     "- A rule you applied is cited by where the author can read it: the repository's own contributing guide, a",
     "  linked standard, or the upstream package. Never name an internal review skill or a harness file the",
     "  author cannot open. If there is no such link, state the rule and move on.",
+    "- Write the way the author talks about their own branch. The harness's shorthand is not review prose:",
+    "  the commit under review is the current commit, the latest push, or a short SHA, never `this head`.",
     ...(cfg.banner?.mode === "authored" && (cfg.banner.prefix || cfg.banner.suffix)
       ? [
           "- The review body carries the disclosure itself, in your own words: restate it, never paste the",

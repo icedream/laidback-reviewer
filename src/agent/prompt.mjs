@@ -114,22 +114,25 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, r
         "discussion, not material to summarise and not a starting point for a fresh pass over the same ground.",
         ...history,
         "",
-        "A finding already on this PR is not a new one: leave it out, or say it still stands at this head and",
-        "name where it was raised. Something the author answered stays answered unless this head changes it,",
-        "and re-opening it costs the reader a second pass over the same argument.",
+        "A finding already on this PR is not a new one, and its status is not a finding: leave it out. Where",
+        "the change under review closes or reopens one, a single short clause naming where it was raised is",
+        "enough: do not restate the finding or re-derive the mechanism that settled it. Drop the clause",
+        "entirely when the review would otherwise be a plain approval, so a closed point goes unmentioned.",
+        "Something the author answered stays answered, and re-opening it costs the reader a second pass over",
+        "the same argument.",
       ].join("\n"),
     );
   } else {
-    sections.push("No review, no inline comment and no discussion is on this PR yet, so nothing has been said to the author about this head.");
+    sections.push("No review, no inline comment and no discussion is on this PR yet, so nothing has been said to the author about the current commit.");
   }
 
   if (reRequest) {
     sections.push(
       [
         reRequest.askedAt
-          ? `Re-review: the review was requested again at ${reRequest.askedAt}, after an earlier pass over`
-          : `Re-review: this head was already reviewed here at ${reRequest.handledAt}, and this pass is the second look at it.`,
-        reRequest.askedAt ? `this same head at ${reRequest.handledAt}.` : null,
+          ? `Re-review: the review was requested again at ${reRequest.askedAt}, after an earlier pass over the`
+          : `Re-review: the commit under review was already reviewed here at ${reRequest.handledAt}, and this pass is the second look at it.`,
+        reRequest.askedAt ? `same commit at ${reRequest.handledAt}.` : null,
         "The entries above include that pass, so repeating them adds nothing: say what has changed",
         "since, and whether the earlier concerns still stand.",
       ]
@@ -181,6 +184,8 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, r
       "Length follows the diff, not the ceiling: around 150 words is a PR-sized body, and a fix of a",
       "hundred lines earns a clause, not a paragraph. A body whose sentences ask the author for nothing",
       "is too long.",
+      "Wording: write the way the author would say it. The harness's shorthand is not review prose - the",
+      "commit under review is the current commit or a short SHA, never this head.",
     ].join("\n"),
   );
 

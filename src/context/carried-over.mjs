@@ -12,8 +12,8 @@ import fs from "node:fs";
 import { extractTicketKeys } from "../agent/prompt.mjs";
 
 const PRIORITIES = [
-  { kind: "same_head", label: "an earlier pass over this same head" },
-  { kind: "same_pr", label: "the same PR at an earlier head" },
+  { kind: "same_head", label: "an earlier pass over this same commit" },
+  { kind: "same_pr", label: "the same PR at an earlier commit" },
   { kind: "stack_sibling", label: "a sibling PR in this stack" },
   { kind: "same_branch", label: "the same branch" },
   { kind: "same_ticket", label: "a PR sharing this ticket" },
@@ -114,9 +114,9 @@ export function pickContext({ cfg, store, pr, stack, files, now = new Date() }) 
     kind: best.kind,
     crossRepo: Boolean(best.row.crossRepo),
     tokens: Number.isFinite(tokens) ? tokens : null,
-    description: `Continuing from an earlier look: ${label}${best.row.crossRepo ? ` in ${best.row.owner}/${best.row.repo}` : ""}, PR #${best.row.pr} at head ${best.row.head_sha.slice(0, 8)}, verdict ${best.row.verdict} (${best.row.action}, ${best.row.posted ? "posted" : "not posted"}).`,
+    description: `Continuing from an earlier look: ${label}${best.row.crossRepo ? ` in ${best.row.owner}/${best.row.repo}` : ""}, PR #${best.row.pr} at ${best.row.head_sha.slice(0, 8)}, verdict ${best.row.verdict} (${best.row.action}, ${best.row.posted ? "posted" : "not posted"}).`,
     instructions: canFork
-      ? "That earlier session is in your conversation. Re-read the current head first and diff it against what you already covered, then review only what changed and what still stands."
+      ? "That earlier session is in your conversation. Re-read the current commit first and diff it against what you already covered, then review only what changed and what still stands."
       : digestFor(best.row, store, cfg),
   };
 }
@@ -128,7 +128,7 @@ export function pickContext({ cfg, store, pr, stack, files, now = new Date() }) 
 function digestFor(row, store, cfg) {
   const comments = store.commentsFor(row.id);
   const lines = [
-    `An earlier review, of PR #${row.pr}${row.branch ? ` on branch ${row.branch}` : ""}, concluded the following. It is not this pull request's history: call it PR #${row.pr} in what you write, never this branch or this PR. Check each point against the current head before repeating it, and drop the ones the change did not carry.`,
+    `An earlier review, of PR #${row.pr}${row.branch ? ` on branch ${row.branch}` : ""}, concluded the following. It is not this pull request's history: call it PR #${row.pr} in what you write, never this branch or this PR. Check each point against the current commit before repeating it, and drop the ones the change did not carry.`,
     ...comments.map((comment) => `- ${comment.path}:${comment.start_line ? `${comment.start_line}-` : ""}${comment.line}: ${comment.body.split("\n")[0].slice(0, 180)}`),
   ];
   if (row.body) lines.push("", "Its body said:", row.body.split("\n").slice(0, 6).join("\n"));

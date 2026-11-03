@@ -38,8 +38,8 @@ test("the second run of a PR digests the first run's findings into its prompt", 
     assert.notEqual(second.reviewId, first.reviewId);
 
     const prompt = JSON.stringify(env.model.requests().slice(requestsBefore));
-    assert.match(prompt, /Continuing from an earlier look: the same PR at an earlier head, PR #143/);
-    assert.match(prompt, /Check each point against the current head/);
+    assert.match(prompt, /Continuing from an earlier look: the same PR at an earlier commit, PR #143/);
+    assert.match(prompt, /Check each point against the current commit/);
     // The findings themselves, not a pointer to a transcript the model cannot read.
     assert.match(prompt, /internal\/(api|service)\/[a-z_]+\.go:\d+: /);
     assert.match(env.log(), /context: digest from #143 \(same_pr\)/);
@@ -97,9 +97,9 @@ test("a second pass over the same head carries the first pass's conclusions", as
     assert.match(env.log(), /context: digest from #143 \(same_head\)/);
     assert.match(env.log(), /re-review of this head: an earlier pass at .*, no newer request event/);
     const prompt = JSON.stringify(env.model.requests().slice(requestsBefore));
-    assert.match(prompt, /Continuing from an earlier look: an earlier pass over this same head, PR #143/);
+    assert.match(prompt, /Continuing from an earlier look: an earlier pass over this same commit, PR #143/);
     // The re-request note comes from the store now, not only from the poll cursor an operator can clear.
-    assert.match(prompt, /Re-review: this head was already reviewed here at/);
+    assert.match(prompt, /Re-review: the commit under review was already reviewed here at/);
     assert.match(prompt, /internal\/(api|service)\/[a-z_]+\.go:\d+: /, "the findings themselves, as data");
   } finally {
     env.close();

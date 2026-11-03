@@ -94,9 +94,9 @@ test("the same PR at an earlier head outranks a stack sibling", () => {
     assert.equal(picked.matched, true);
     assert.equal(picked.kind, "same_pr");
     assert.equal(picked.mode, "digest");
-    assert.match(picked.description, /the same PR at an earlier head, PR #143/);
+    assert.match(picked.description, /the same PR at an earlier commit, PR #143/);
     assert.match(picked.instructions, /internal\/service\/orders\.go:79: The decode error is dropped\./);
-    assert.match(picked.instructions, /Check each point against the current head/);
+    assert.match(picked.instructions, /Check each point against the current commit/);
   } finally {
     store.close();
   }
@@ -222,7 +222,7 @@ test("a re-request over the same head carries what that head's earlier pass conc
 
     assert.equal(picked.matched, true, "the earlier pass over this head is the best context there is");
     assert.equal(picked.kind, "same_head");
-    assert.match(picked.description, /an earlier pass over this same head, PR #143/);
+    assert.match(picked.description, /an earlier pass over this same commit, PR #143/);
     assert.match(picked.instructions, /internal\/service\/stream\.go:44: The span is never ended on the error path\./);
     assert.match(picked.instructions, /context leak in the stream handler/);
   } finally {
