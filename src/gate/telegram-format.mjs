@@ -89,6 +89,13 @@ export function rerunRow(gateId) {
 /** Shipped with the row: on its own it reads like a fourth verdict word. */
 export const RERUN_NOTE = "\n\n↻ another pass runs a fresh review of this head and supersedes this proposal.";
 
+/** The approval posted but not submitted: the operator finishes it in GitHub, the author sees nothing yet. */
+export function pendingRow(gateId) {
+  return [{ text: "📝 as pending review", callback_data: `pd:${gateId}` }];
+}
+
+export const PENDING_NOTE = "\n\n📝 as pending review sends it to GitHub unsubmitted: the comments and their anchors are there for you to edit and submit, and the author sees nothing until you do.";
+
 export function decisionRows(gateId) {
   return [
     { text: "✅ approve", callback_data: `ap:${gateId}` },
@@ -127,6 +134,8 @@ export function parseCallback(data) {
   if (finding) return { kind: "finding", gateId: finding[1], index: Number(finding[2]) };
   const rerun = /^rr:([0-9a-f-]{4,32})$/.exec(text);
   if (rerun) return { kind: "rerun", gateId: rerun[1] };
+  const pending = /^pd:([0-9a-f-]{4,32})$/.exec(text);
+  if (pending) return { kind: "pending", gateId: pending[1] };
   const back = /^bk:([0-9a-f-]{4,32})$/.exec(text);
   if (back) return { kind: "back", gateId: back[1] };
   const list = /^ls:([0-9a-f-]{4,32})$/.exec(text);

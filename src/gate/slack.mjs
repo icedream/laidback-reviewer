@@ -20,14 +20,16 @@ const clamp = (text) => (text.length > SLACK_CLAMP ? `${text.slice(0, SLACK_CLAM
 export function parseDecision(text, { gateIds, allowUsers = [], user }) {
   if (!text || !gateIds.size) return null;
   if (allowUsers.length && !allowUsers.includes(user)) return null;
-  const match = /^\s*(approve|reject|hold|rerun)\s+([0-9a-f-]{4,12})\b\s*(.*)$/i.exec(text);
+  const match = /^\s*(approve|reject|hold|rerun|pending)\s+([0-9a-f-]{4,12})\b\s*(.*)$/i.exec(text);
   if (!match) return null;
   const [, command, gateId, rest] = match;
   if (!gateIds.has(gateId)) return null;
   return { command: command.toLowerCase(), gateId, reason: rest.trim() || null };
 }
 
-export const STATE_BY_COMMAND = { approve: "approved", reject: "rejected", hold: "held" };
+export const STATE_BY_COMMAND = { approve: "approved", reject: "rejected", hold: "held", pending: "approved" };
+/** An approval can still be held back from the author: the mode says how it is posted, not whether it is. */
+export const MODE_BY_COMMAND = { pending: "pending" };
 export const RERUN_COMMAND = "rerun";
 
 /**
@@ -36,7 +38,7 @@ export const RERUN_COMMAND = "rerun";
  * hold: the first one present decides.
  */
 export function parseReactions(message, { allowUsers = [], reactions = {} } = {}) {
-  for (const command of ["approve", "reject", "hold", "rerun"]) {
+  for (const command of ["approve", "reject", "hold", "pending", "rerun"]) {
     const names = reactions[command] ?? [];
     for (const reaction of message?.reactions ?? []) {
       if (!names.includes(reaction.name)) continue;
@@ -184,7 +186,8 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
       .flatMap(([command, names]) => names.slice(0, 1).map((name) => `:${name}: ${command}`))
       .join(", ");
     const rerunHint = reviewId && slack.reactions?.rerun?.length ? ` or :${slack.reactions.rerun[0]}: for another pass` : "";
-    const header = `laidback-reviewer gate ${gateId}. React ${hint}, or reply \`approve ${gateId}\` / \`reject ${gateId} <reason>\`${rerunHint}.`;
+    const pendingHint = reviewId ? ` / \`pending ${gateId}\` to post it as a review the author cannot see yet` : "";
+    const header = `laidback-reviewer gate ${gateId}. React ${hint}, or reply \`approve ${gateId}\` / \`reject ${gateId} <reason>\`${pendingHint}${rerunHint}.`;
     const sent = await call("chat.postMessage", { channel, text: `${header}\n\n${summary}`, unfurl_links: false });
     if (!sent.ok) return false;
     store.setSlackTs({ id: gateId, ts: sent.ts });
@@ -279,7 +282,7 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
           gateIds.delete(decision.gateId);
           continue;
         }
-        applied.push(store.decideGate({ id: decision.gateId, state: STATE_BY_COMMAND[decision.command], decided_by: message.user ?? "slack", reason: decision.reason }));
+        applied.push(store.decideGate({ id: decision.gateId, state: STATE_BY_COMMAND[decision.command], mode: MODE_BY_COMMAND[decision.command] ?? null, decided_by: message.user ?? "slack", reason: decision.reason }));
         gateIds.delete(decision.gateId);
       }
 
@@ -291,7 +294,7 @@ export function createSlackGate({ cfg, store, token, cookie, log = () => {} }) {
           applied.push({ id: gate.id, state: "rerun", decided_by: reaction.user });
           gateIds.delete(gate.id);
         } else if (reaction) {
-          applied.push(store.decideGate({ id: gate.id, state: STATE_BY_COMMAND[reaction.command], decided_by: reaction.user, reason: `reacted ${reaction.emoji}` }));
+          applied.push(store.decideGate({ id: gate.id, state: STATE_BY_COMMAND[reaction.command], mode: MODE_BY_COMMAND[reaction.command] ?? null, decided_by: reaction.user, reason: `reacted ${reaction.emoji}` }));
           gateIds.delete(gate.id);
         }
       }

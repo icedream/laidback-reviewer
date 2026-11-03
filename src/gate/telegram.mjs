@@ -7,7 +7,7 @@
  * reads on a phone without a wall of thread replies.
  */
 
-import { parseCallback, summaryHtml, findingHtml, decisionRows, findingRows, backRows, rerunRow, RERUN_NOTE, toastFor } from "./telegram-format.mjs";
+import { parseCallback, summaryHtml, findingHtml, decisionRows, findingRows, backRows, rerunRow, RERUN_NOTE, pendingRow, PENDING_NOTE, toastFor } from "./telegram-format.mjs";
 import { requestRerun } from "./gate.mjs";
 import { expirePending } from "./expire.mjs";
 
@@ -99,22 +99,27 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
   }
 
   /**
-   * Whether a gate's message carries the ask for another pass. It replaces a composed review, so a gate
-   * with no review attached has nothing to supersede. Every view of one gate has to answer the same way:
-   * a keyboard rebuilt without it strands the operator on a page where the control vanished.
+   * Whether a gate's message can offer the two asks that act on a composed review: another pass, and the
+   * same review held back from the author as unsubmitted. Every view of one gate has to answer the same
+   * way: a keyboard rebuilt without them strands the operator on a page where the controls vanished.
    */
-  const rerunOffered = (gate) => Boolean(gate?.review_id) && telegram.rerunButton !== false;
+  const hasComposedReview = (gate) => Boolean(gate?.review_id);
 
   async function post(gateId, summary, { reviewId = null } = {}) {
     const comments = reviewId ? store.commentsFor(reviewId) : [];
     const shown = comments.slice(0, telegram.maxFindingButtons);
-    const offersRerun = rerunOffered({ review_id: reviewId });
+    const offersRerun = hasComposedReview({ review_id: reviewId });
     let text = summaryHtml(summary, { comments: shown, maxFindings: telegram.maxFindingButtons });
     // The button alone reads like a fourth verdict word, so the message says what it does.
-    if (offersRerun) text += RERUN_NOTE;
+    if (offersRerun) text += `${RERUN_NOTE}${PENDING_NOTE}`;
     if (text.length > TELEGRAM_TEXT_LIMIT) text = `${text.slice(0, TELEGRAM_TEXT_LIMIT - 1)}\n…`;
 
-    const keyboard = [decisionRows(gateId), ...findingRows(gateId, shown.length), ...(offersRerun ? [rerunRow(gateId)] : [])];
+    const keyboard = [
+      decisionRows(gateId),
+      ...findingRows(gateId, shown.length),
+      ...(offersRerun ? [pendingRow(gateId)] : []),
+      ...(offersRerun && telegram.rerunButton !== false ? [rerunRow(gateId)] : []),
+    ];
     try {
       const sent = await call("sendMessage", {
         chat_id: chatId,
@@ -154,16 +159,23 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
     const gate = store.getGate(gateId);
     const comments = reviewId ? store.commentsFor(reviewId) : [];
     const shown = comments.slice(0, telegram.maxFindingButtons);
-    const offersRerun = rerunOffered(gate);
+    const offersRerun = hasComposedReview(gate);
     let text = summaryHtml(gate?.summary ?? "", { comments: shown, maxFindings: telegram.maxFindingButtons });
-    if (offersRerun) text += RERUN_NOTE;
+    if (offersRerun) text += `${RERUN_NOTE}${PENDING_NOTE}`;
     await call("editMessageText", {
       chat_id: cb.message.chat.id,
       message_id: cb.message.message_id,
       text: text.slice(0, TELEGRAM_TEXT_LIMIT),
       parse_mode: "HTML",
       link_preview_options: { is_disabled: true },
-      reply_markup: { inline_keyboard: [decisionRows(gateId), ...findingRows(gateId, shown.length), ...(offersRerun ? [rerunRow(gateId)] : [])] },
+      reply_markup: {
+        inline_keyboard: [
+          decisionRows(gateId),
+          ...findingRows(gateId, shown.length),
+          ...(offersRerun ? [pendingRow(gateId)] : []),
+          ...(offersRerun && telegram.rerunButton !== false ? [rerunRow(gateId)] : []),
+        ],
+      },
     });
   }
 
@@ -250,6 +262,22 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
           toast = "another pass requested";
           await settle(parsed.gateId, cb, "another pass requested", who);
         }
+      } else if (parsed.kind === "pending") {
+        // Not a different verdict: an approval that stops short of showing the author anything.
+        if (!gate || gate.state !== "pending") {
+          toast = "already decided";
+        } else if (!gate.review_id) {
+          toast = "nothing composed to hold back yet";
+        } else if (allowUsers.length && !allowUsers.includes(String(cb.from?.id ?? ""))) {
+          log(`gate ${parsed.gateId}: ${who} is not in ${cfg.gate.telegram.allowUsersEnv}`);
+          toast = "not on the allow list";
+        } else {
+          store.decideGate({ id: parsed.gateId, state: "approved", mode: "pending", decided_by: who, reason: "post it unsubmitted" });
+          log(`gate ${parsed.gateId} approved as a pending review by ${who}`);
+          applied.push({ id: parsed.gateId, state: "approved", mode: "pending", decided_by: who });
+          toast = "queued as a pending review";
+          await settle(parsed.gateId, cb, "approved as pending", who);
+        }
       } else if (!gate || gate.state !== "pending") {
         toast = "already decided";
         if (gate) await settle(parsed.gateId, cb, gate.state, gate.decided_by ?? "someone");
@@ -305,8 +333,13 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
       if (!gate.kind.endsWith(":telegram") || !gate.channel_msg_id) continue;
       const comments = gate.review_id ? store.commentsFor(gate.review_id) : [];
       const shown = comments.slice(0, telegram.maxFindingButtons);
-      const offersRerun = rerunOffered(gate);
-      const keyboard = [decisionRows(gate.id), ...findingRows(gate.id, shown.length), ...(offersRerun ? [rerunRow(gate.id)] : [])];
+      const offersRerun = hasComposedReview(gate);
+      const keyboard = [
+        decisionRows(gate.id),
+        ...findingRows(gate.id, shown.length),
+        ...(offersRerun ? [pendingRow(gate.id)] : []),
+        ...(offersRerun && telegram.rerunButton !== false ? [rerunRow(gate.id)] : []),
+      ];
       try {
         await call("editMessageReplyMarkup", {
           chat_id: chatId,
@@ -346,13 +379,14 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
     if (!gate?.channel_msg_id) return false;
     const comments = gate.review_id ? store.commentsFor(gate.review_id) : [];
     const shown = comments.slice(0, telegram.maxFindingButtons);
-    const offersRerun = rerunOffered(gate);
+    const offersRerun = hasComposedReview(gate);
     let text = summaryHtml(gate.summary ?? "", { comments: shown, maxFindings: telegram.maxFindingButtons });
     const keyboard = [];
     if (gate.state === "pending") {
-      if (offersRerun) text += RERUN_NOTE;
+      if (offersRerun) text += `${RERUN_NOTE}${PENDING_NOTE}`;
       keyboard.push(decisionRows(gate.id), ...findingRows(gate.id, shown.length));
-      if (offersRerun) keyboard.push(rerunRow(gate.id));
+      if (offersRerun) keyboard.push(pendingRow(gate.id));
+      if (offersRerun && telegram.rerunButton !== false) keyboard.push(rerunRow(gate.id));
     } else {
       // The reason is what makes a settled gate readable: "withdrawn" on its own does not say the pull
       // request merged out from under the ask.

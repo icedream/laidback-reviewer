@@ -108,8 +108,8 @@ export function createGate({ cfg, store, log = () => {}, transport = null }) {
       return { state: "queued", gateId };
     },
 
-    decide({ gateId, state, decidedBy, reason }) {
-      return store.decideGate({ id: gateId, state, decided_by: decidedBy, reason });
+    decide({ gateId, state, decidedBy, reason, mode = null }) {
+      return store.decideGate({ id: gateId, state, decided_by: decidedBy, reason, mode });
     },
 
     pending() {

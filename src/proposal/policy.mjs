@@ -235,7 +235,7 @@ export function validateBannerSlot(original, rewritten, { label = "banner", draf
  * @param files      `GET /pulls/N/files` result for the current head
  * @param headSha    the head the review is pinned to
  */
-export function composeReview({ proposal, cfg, files, headSha, owner, repo, banner = null }) {
+export function composeReview({ proposal, cfg, files, headSha, owner, repo, banner = null, actionOverride = null }) {
   const decisions = [];
   const notes = [];
 
@@ -275,7 +275,10 @@ export function composeReview({ proposal, cfg, files, headSha, owner, repo, bann
   const comments = anchored.slice(0, cap);
   if (anchored.length > cap) notes.push(`dropped ${anchored.length - cap} comments over maxComments=${cap}`);
 
-  const action = VERDICT_ACTION[proposal.verdict](cfg);
+  const action = actionOverride ?? VERDICT_ACTION[proposal.verdict](cfg);
+  if (actionOverride && actionOverride !== VERDICT_ACTION[proposal.verdict](cfg)) {
+    decisions.push(`operator chose ${actionOverride} on the gate`);
+  }
   decisions.push(`verdict ${proposal.verdict} -> ${action}`);
   const mismatch = verdictMismatch({ verdict: proposal.verdict, blocking: proposal.blocking ?? [] });
   if (mismatch) notes.push(mismatch);

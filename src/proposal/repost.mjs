@@ -20,6 +20,9 @@ export async function postApprovedReview({ cfg, store, client, reviewId, log = (
   if (cfg.gate.beforePost && gates.length && !approved) {
     return { skipped: "gate_not_approved", gates: gates.map((gate) => `${gate.id}:${gate.state}`) };
   }
+  // The gate can be tapped with a different posting shape than the policy default: an approval held as
+  // an unsubmitted review is still an approval, with the submitting left to the operator.
+  const actionOverride = approved?.mode ?? null;
 
   // Taken before any network work: an approval handled between cycles and the same approval seen by the
   // next cycle's pass would otherwise post the review twice. Releasing the claim on failure reopens that
@@ -47,7 +50,7 @@ export async function postApprovedReview({ cfg, store, client, reviewId, log = (
       blocking: JSON.parse(row.blocking ?? "[]"),
     };
 
-    const composed = composeReview({ proposal, cfg, files, headSha: currentHead, owner: row.owner, repo: row.repo });
+    const composed = composeReview({ proposal, cfg, files, headSha: currentHead, owner: row.owner, repo: row.repo, actionOverride });
     const posted = await submitReview({ client, owner: row.owner, repo: row.repo, pr: row.pr, payload: composed.payload, expectedHeadSha: currentHead });
     store.markPosted({ id: reviewId, github_review_id: posted.id, html_url: posted.html_url, postState: posted.state === "PENDING" ? "pending" : "submitted" });
     handedOff = true;

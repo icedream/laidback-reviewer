@@ -127,7 +127,7 @@ export function openStore(path) {
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec(SCHEMA);
   // Columns added after the first release: exec() above is a no-op on an existing database.
-  for (const column of ["slack_ts TEXT", "comment_ts TEXT", "channel_msg_id TEXT"]) {
+  for (const column of ["slack_ts TEXT", "comment_ts TEXT", "channel_msg_id TEXT", "mode TEXT"]) {
     try {
       db.exec(`ALTER TABLE gates ADD COLUMN ${column}`);
     } catch {
@@ -288,7 +288,7 @@ export function createStore(db) {
     pendingReruns: db.prepare(`SELECT * FROM reruns WHERE consumed_at IS NULL ORDER BY requested_at`),
     consumeRerun: db.prepare(`UPDATE reruns SET consumed_at = @now WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha AND consumed_at IS NULL`),
     decideGate: db.prepare(
-      `UPDATE gates SET state = @state, decided_at = @now, decided_by = @decided_by, reason = @reason WHERE id = @id`,
+      `UPDATE gates SET state = @state, mode = @mode, decided_at = @now, decided_by = @decided_by, reason = @reason WHERE id = @id`,
     ),
     gatesForReview: db.prepare(`SELECT * FROM gates WHERE review_id = @review_id ORDER BY created_at`),
     getMeta: db.prepare(`SELECT value FROM meta WHERE key = @key`),
@@ -463,8 +463,8 @@ export function createStore(db) {
     releasePostClaim({ id }) {
       statements.releasePostClaim.run({ id });
     },
-    decideGate({ id, state, decided_by, reason = null }) {
-      statements.decideGate.run({ id, state, decided_by, reason, now: now() });
+    decideGate({ id, state, decided_by, reason = null, mode = null }) {
+      statements.decideGate.run({ id, state, mode, decided_by, reason, now: now() });
       return statements.getGate.get({ id });
     },
 

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseDecision, parseReactions } from "../../src/gate/slack.mjs";
+import { parseDecision, parseReactions, STATE_BY_COMMAND, MODE_BY_COMMAND } from "../../src/gate/slack.mjs";
 
 const gateIds = new Set(["ab12cd34"]);
 
@@ -43,6 +43,18 @@ test("only allowlisted users can decide a gate", () => {
 
 test("an unrelated sentence is not parsed as a command", () => {
   assert.equal(parseDecision("I would approve ab12cd34 once the anchor is fixed", { gateIds }), null);
+});
+
+test("pending is an approval with a different posting shape", () => {
+  assert.deepEqual(parseDecision("pending ab12cd34", { gateIds }), { command: "pending", gateId: "ab12cd34", reason: null });
+  assert.equal(STATE_BY_COMMAND.pending, "approved", "it decides the gate the way approve does");
+  assert.equal(MODE_BY_COMMAND.pending, "pending");
+
+  const reaction = parseReactions(
+    { reactions: [{ name: "eyes", users: ["U_ADMIN"] }] },
+    { allowUsers: ["U_ADMIN"], reactions: { approve: ["white_check_mark"], pending: ["eyes"] } },
+  );
+  assert.equal(reaction.command, "pending");
 });
 
 test("the rerun chip and the rerun command are recognised", () => {

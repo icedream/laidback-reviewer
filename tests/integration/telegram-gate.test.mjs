@@ -186,6 +186,7 @@ test("a numbered button opens that finding, and back restores the summary", asyn
       [
         [`ap:${f.opened.gateId}`, `rj:${f.opened.gateId}`, `hd:${f.opened.gateId}`],
         [`fw:${f.opened.gateId}:0`, `fw:${f.opened.gateId}:1`],
+        [`pd:${f.opened.gateId}`],
         [`rr:${f.opened.gateId}`],
       ],
       "back restores the summary with every control it had, the ask for another pass included",
@@ -208,6 +209,7 @@ test("a rebuilt summary offers the same finding buttons the first one did", asyn
       [
         [`ap:${f.opened.gateId}`, `rj:${f.opened.gateId}`, `hd:${f.opened.gateId}`],
         [`fw:${f.opened.gateId}:0`],
+        [`pd:${f.opened.gateId}`],
         [`rr:${f.opened.gateId}`],
       ],
       "the cap leaves one finding button on the first render",
@@ -223,6 +225,7 @@ test("a rebuilt summary offers the same finding buttons the first one did", asyn
       [
         [`ap:${f.opened.gateId}`, `rj:${f.opened.gateId}`, `hd:${f.opened.gateId}`],
         [`fw:${f.opened.gateId}:0`],
+        [`pd:${f.opened.gateId}`],
         [`rr:${f.opened.gateId}`],
       ],
       "and the same cap after going back, not the full comment list",
@@ -343,6 +346,26 @@ test("another pass can be asked for on the gate that holds the composed review",
   }
 });
 
+test("an approval can be held back as a pending review from the gate", async () => {
+  const f = await fixture();
+  try {
+    f.telegram.tap(`pd:${f.opened.gateId}`, { from: { id: 4242, username: "decider" } });
+    const applied = await f.gateTransport.readDecisions();
+    assert.deepEqual(
+      applied.map((entry) => [entry.state, entry.mode, entry.decided_by]),
+      [["approved", "pending", "telegram:4242 @decider"]],
+    );
+
+    const gate = f.store.getGate(f.opened.gateId);
+    assert.equal(gate.state, "approved", "it decides the gate, so nothing stays queued");
+    assert.equal(gate.mode, "pending", "and it records how the review is to be posted");
+    assert.equal(f.telegram.toasts.at(-1).text, "queued as a pending review");
+    assert.match(f.telegram.messages.at(-1).text, /approved as pending/);
+  } finally {
+    f.cleanup();
+  }
+});
+
 test("a task gate offers no rerun control, because nothing has been composed yet", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "laidback-telegram-task-"));
   const telegram = createTelegramFake();
@@ -367,9 +390,9 @@ test("a message posted without the control gains it, text untouched", async () =
   const f = await fixture();
   try {
     const posted = f.telegram.messages.at(-1);
-    posted.reply_markup.inline_keyboard = posted.reply_markup.inline_keyboard.filter((row) => !row[0].callback_data.startsWith("rr:"));
+    posted.reply_markup.inline_keyboard = posted.reply_markup.inline_keyboard.filter((row) => !/^(rr|pd):/.test(row[0].callback_data));
     const textBefore = posted.text;
-    assert.equal(posted.reply_markup.inline_keyboard.length, 2, "an older build posted two rows");
+    assert.equal(posted.reply_markup.inline_keyboard.length, 2, "an older build posted two rows and neither ask");
 
     assert.equal(await f.gateTransport.refreshControls(), 1);
     const after = f.telegram.messages.find((entry) => entry.message_id === posted.message_id);
@@ -378,6 +401,7 @@ test("a message posted without the control gains it, text untouched", async () =
     assert.deepEqual(rows.map((row) => row.map((b) => b.callback_data)), [
       [`ap:${f.opened.gateId}`, `rj:${f.opened.gateId}`, `hd:${f.opened.gateId}`],
       [`fw:${f.opened.gateId}:0`, `fw:${f.opened.gateId}:1`],
+      [`pd:${f.opened.gateId}`],
       [`rr:${f.opened.gateId}`],
     ]);
 
