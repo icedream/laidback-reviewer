@@ -21,6 +21,21 @@ const VERDICT_ACTION = {
   comment: () => "submit",
 };
 
+/**
+ * The verdict and the blocker list are two answers to one question, recorded in two tool calls, and the
+ * model can give two answers. Nothing here corrects the review: the mismatch is put where the operator
+ * decides, because the fix is either the verdict or the finding, and only a reader can say which.
+ */
+export function verdictMismatch({ verdict, blocking = [] }) {
+  if (verdict === "approve" && blocking.length) {
+    return `verdict approve carries ${blocking.length} blocking item(s): the review asks for changes it is not blocking`;
+  }
+  if (verdict === "request_changes" && !blocking.length) {
+    return "verdict request_changes names no blocker: what blocks has to be in the body or in an inline comment";
+  }
+  return "";
+}
+
 const escapeForRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Case- and whitespace-insensitive, tolerant of the punctuation a sentence ends with. */
@@ -262,6 +277,8 @@ export function composeReview({ proposal, cfg, files, headSha, owner, repo, bann
 
   const action = VERDICT_ACTION[proposal.verdict](cfg);
   decisions.push(`verdict ${proposal.verdict} -> ${action}`);
+  const mismatch = verdictMismatch({ verdict: proposal.verdict, blocking: proposal.blocking ?? [] });
+  if (mismatch) notes.push(mismatch);
 
   let event = "COMMENT";
   let verdictLine = "";

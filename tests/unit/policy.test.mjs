@@ -123,6 +123,32 @@ test("a suggestion that cannot cover its anchor posts the finding without the fe
   assert.match(composed.notes.join("\n"), /dropped suggestion: .*covers 1 changed line\(s\)/);
 });
 
+test("an approval that carries blockers, and a block that names none, are flagged for the gate", () => {
+  const approving = composeReview({
+    proposal: proposal({ verdict: "approve", blocking: ["the migration renumbers a deployed file"] }),
+    cfg: cfg(),
+    files,
+    headSha: "abc",
+  });
+  assert.match(approving.notes.join("\n"), /verdict approve carries 1 blocking item\(s\)/);
+
+  const blocking = composeReview({
+    proposal: proposal({ verdict: "request_changes", blocking: [] }),
+    cfg: cfg(),
+    files,
+    headSha: "abc",
+  });
+  assert.match(blocking.notes.join("\n"), /request_changes names no blocker/);
+
+  const coherent = composeReview({
+    proposal: proposal({ verdict: "request_changes", blocking: ["the migration renumbers a deployed file"] }),
+    cfg: cfg(),
+    files,
+    headSha: "abc",
+  });
+  assert.deepEqual(coherent.notes.filter((note) => /verdict/.test(note)), [], "a verdict and its blockers agreeing earns no note");
+});
+
 test("an empty proposal is refused instead of posting a blank review", () => {
   assert.throws(() => composeReview({ proposal: { body: "", verdict: "comment", comments: [] }, cfg: cfg(), files, headSha: "abc" }), /empty/);
 });
