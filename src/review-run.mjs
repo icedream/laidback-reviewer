@@ -129,10 +129,14 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
 
   // A review body the operator rewrote after posting is a correction of this bot's shape, not of its
   // findings. Only the pass over this PR is told, so one edit never becomes a standing preference.
-  const rewritten = findRewrittenBodies({ reviews, posted: store.postedReviewsForPr({ owner, repo, pr: prNumber }) });
+  const postedRows = store.postedReviewsForPr({ owner, repo, pr: prNumber });
+  const rewritten = findRewrittenBodies({ reviews, posted: postedRows });
   if (rewritten.length) {
     log(`${rewritten.length} review body(s) here were rewritten by the operator since this bot posted them`);
   }
+  // GitHub shows an unsubmitted review to its author only: its findings exist on the PR and reach nobody.
+  const pendingOwn = postedRows.filter((row) => row.post_state === "pending");
+  if (pendingOwn.length) log(`${pendingOwn.length} unsubmitted review(s) from this bot are waiting on this PR`);
 
   // A head is reviewed once. What reopens it is a fresh review request, carried in by discovery, or a
   // direct invocation, which is the operator asking for another pass by hand.
@@ -210,7 +214,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
     files,
     checkoutDir,
     headSha,
-    prior: { reviews, comments, discussion, rewrittenReviewIds: rewritten.map((entry) => entry.githubReviewId) },
+    prior: { reviews, comments, discussion, rewrittenReviewIds: rewritten.map((entry) => entry.githubReviewId), pendingOwnReviews: pendingOwn },
     reRequest: earlierPass,
     compareDir,
     writableRoots,

@@ -219,6 +219,23 @@ test("a review body the operator rewrote after posting reads as their instructio
   assert.doesNotMatch(plain, /rewritten on GitHub/);
 });
 
+test("an unsubmitted review of this bot's own is not treated as already said", () => {
+  const prompt = buildTaskPrompt({
+    pr,
+    files,
+    checkoutDir: "/work/x",
+    headSha: pr.head.sha,
+    prior: { reviews: [], comments: [], pendingOwnReviews: [{ head_sha: "abcdef0123456789", html_url: "https://github.com/acme/svc/pull/7#pullrequestreview-9", post_state: "pending" }] },
+  });
+
+  assert.match(prompt, /still unsubmitted: https:\/\/github\.com\/acme\/svc\/pull\/7#pullrequestreview-9 at abcdef01/);
+  assert.match(prompt, /shows it to the operator alone/);
+  assert.match(prompt, /leaves the operator holding it twice/);
+
+  const none = buildTaskPrompt({ pr, files, checkoutDir: "/work/x", headSha: pr.head.sha, prior: { reviews: [], comments: [] } });
+  assert.doesNotMatch(none, /still unsubmitted/);
+});
+
 test("a second look found in the store is named without a request event", () => {
   const prompt = buildTaskPrompt({ pr, files, checkoutDir: "/work/x", headSha: pr.head.sha, reRequest: { handledAt: "2026-04-01T00:00:00.000Z" } });
   assert.match(prompt, /Re-review: the commit under review was already reviewed here at 2026-04-01T00:00:00\.000Z, and this pass is the second look at it\./);

@@ -12,6 +12,7 @@ import { taskGateDecision } from "./gate/gate.mjs";
 import { withdrawClosedPullGates } from "./gate/obsolete.mjs";
 import { clearFailure, failureNote, failurePlan, recordFailure } from "./proposal/retries.mjs";
 import { postApprovedReview } from "./proposal/repost.mjs";
+import { sweepPendingPosts } from "./proposal/pending.mjs";
 import { runReview } from "./review-run.mjs";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -37,6 +38,10 @@ export async function cycle({
   // pull requests, so the head is never a candidate again. Settling those gates here is what keeps the
   // channel honest instead of leaving an approval waiting on a pass that will not come.
   await withdrawClosedPullGates({ store, client, transport, log });
+
+  // An unsubmitted review is the operator's to finish, but a push makes its anchors wrong, and silence
+  // about that is how a draft ends up submitted against lines that no longer exist.
+  await sweepPendingPosts({ store, client, notify: transport?.notify ?? null, log });
 
   // A deferral keeps its tree; a tree no deferral keeps is garbage, and garbage here is also misleading
   // because a later pass could read another run's comparison files as its own.

@@ -233,10 +233,13 @@ export function createStore(db) {
     allDeferrals: db.prepare("SELECT * FROM deferrals ORDER BY until_at"),
     clearDeferral: db.prepare(`DELETE FROM deferrals WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha`),
     listFailures: db.prepare(`SELECT * FROM failures ORDER BY updated_at DESC LIMIT 100`),
+    /** Rows whose review GitHub holds unsubmitted: waiting on the operator, invisible to the author. */
+    pendingPosts: db.prepare(`SELECT id, owner, repo, pr, head_sha, github_review_id, html_url, post_state, created_at FROM reviews WHERE post_state = 'pending' ORDER BY created_at`),
+    setPostState: db.prepare(`UPDATE reviews SET post_state = @post_state, updated_at = @now WHERE id = @id`),
     getReview: db.prepare(`SELECT * FROM reviews WHERE id = @id`),
     reviewFor: db.prepare(`SELECT * FROM reviews WHERE owner = @owner AND repo = @repo AND pr = @pr AND head_sha = @head_sha`),
     postedReviewsForPr: db.prepare(
-      `SELECT id, head_sha, verdict, event, body, github_review_id, html_url FROM reviews
+      `SELECT id, head_sha, verdict, event, action, body, github_review_id, html_url, post_state FROM reviews
        WHERE owner = @owner AND repo = @repo AND pr = @pr AND posted = 1 AND github_review_id IS NOT NULL
        ORDER BY created_at`,
     ),
@@ -390,6 +393,10 @@ export function createStore(db) {
     reviewFor: (key) => statements.reviewFor.get(key),
     /** What this bot posted on the PR, with the GitHub review id each body became: the baseline for an edit. */
     postedReviewsForPr: (key) => statements.postedReviewsForPr.all(key),
+    pendingPosts: () => statements.pendingPosts.all(),
+    setPostState({ id, state }) {
+      statements.setPostState.run({ id, post_state: state, now: now() });
+    },
     /** The transcript of the newest pass over a head, which is where a requested rerun starts from. */
     latestSessionFor: (key) => statements.latestSessionFor.get(key),
     commentsFor: (reviewId) => statements.commentsFor.all({ review_id: reviewId }),

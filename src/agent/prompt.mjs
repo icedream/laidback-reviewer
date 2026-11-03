@@ -140,6 +140,19 @@ export function buildTaskPrompt({ pr, files, checkoutDir, headSha, prior = {}, r
     sections.push("No review, no inline comment and no discussion is on this PR yet, so nothing has been said to the author about the current commit.");
   }
 
+  if (prior.pendingOwnReviews?.length) {
+    sections.push(
+      [
+        ...prior.pendingOwnReviews.map(
+          (row) => `One review here is this bot's own and is still unsubmitted: ${row.html_url ?? ""} at ${String(row.head_sha).slice(0, 8)}.`,
+        ),
+        "GitHub shows it to the operator alone, so nothing inside it has been said to the author and the",
+        "rule about findings already on this PR does not cover it. Repeating one of its findings anyway",
+        "leaves the operator holding it twice: once in a draft they have not published, once live.",
+      ].join("\n"),
+    );
+  }
+
   if (reRequest) {
     sections.push(
       [
