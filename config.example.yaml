@@ -24,8 +24,8 @@ reviews:
   maxComments: 25
   budgetMs: 1200000                 # wall clock for one review; over it the session is cancelled and the head records a failure
   dryRun: true                      # nothing reaches GitHub; the payload is printed and stored
-  approve: hint                     # submit | hint | drop
-  requestChanges: hint              # submit | hint | drop
+  approve: hint                     # submit | hint | drop | pending
+  requestChanges: hint              # submit | hint | drop | pending
   hintWording:
     approve: "Verdict: I would have approved this."   # "" leaves the verdict to the review's own wording
     requestChanges: "Verdict: I would have requested changes."

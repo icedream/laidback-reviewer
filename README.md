@@ -28,7 +28,8 @@ policy layer and optionally a queue you approve before anything is posted.
   over the head.
 - **A verdict you configure.** `approve: hint` and `requestChanges: submit` are the defaults: an AI
   approval becomes a comment that says what it would have been, and a blocking review posts for real once
-  you clear it.
+  you clear it. Either axis can also be `pending`: the review goes to GitHub unsubmitted, comments and
+  anchors included, for you to edit and submit in its own UI.
 - **A record per run** under `data/reviews/`: the proposed verdict with its reason, the policy mapping,
   every gate with its evidence, the comments as posted, and each anchor the harness had to repair.
 - **Carried-over context.** A second look at the same PR, a stack sibling or the same ticket key
@@ -85,7 +86,7 @@ github:
 trigger:
   mode: review_requested        # only PRs where you are a named reviewer
 reviews:
-  approve: hint                 # submit | hint | drop
+  approve: hint                 # submit | hint | drop | pending
   requestChanges: submit
 gate:
   channel: telegram             # slack | telegram | cli | none

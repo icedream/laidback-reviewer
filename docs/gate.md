@@ -28,6 +28,7 @@ so a decision lands in seconds rather than at the next `github.pollIntervalMs`.
 | --- | --- | --- |
 | `pending` | opened by the harness | the loop waits |
 | `approved` | your decision | a task gate releases that head once; a post gate makes the review eligible to send |
+| `approved` with `mode: pending` | your decision, given as `pending` | the review goes to GitHub unsubmitted, for you to finish in its UI: see below |
 | `rejected` | your decision, or a rerun superseding an older proposal | nothing is posted for that head |
 | `held` | your decision | left as you left it: no posting, and no expiry |
 | `expired` | `gate.timeoutHours` passed with no decision | `onTimeout: hold` never posts, `onTimeout: skip` marks it skipped |
@@ -51,6 +52,22 @@ its channel message is rewritten to say the same, and no model time goes to code
 branch. A review composed earlier and waiting on a post gate is left alone, since GitHub still takes a
 review on a merged pull request and that pass was already paid for.
 
+## An approval that leaves nothing visible
+
+`reviews.approve: pending` (or `pending` on one gate: `📝 as pending review` in Telegram, `pending <id>` in
+Slack or the CLI) sends the review to GitHub without submitting it. Same body, same inline comments, same
+anchors; GitHub holds it as a review only your account can see, so you can rewrite it in the pull request
+and submit it, or delete it. Nothing reaches the author until you do, which is the difference between this
+and `approve: hint` - a hint is public and says a verdict was withheld, a pending review is private and has
+no verdict to withhold.
+
+It is still an approval: the gate is decided, the review is marked posted, and `post_state` records whether
+GitHub holds it as `pending` or it is `submitted`. The bot never submits or deletes it. What it does watch,
+once a cycle, is what the draft turns into: you submitting it settles the row, and an author pushing makes
+the anchors wrong, which earns one warning on the gate channel and one line in the record. A later pass over
+that PR is told the draft exists, so it neither treats its findings as already said to the author nor posts
+the same finding twice.
+
 ## Another pass over the same head
 
 `↻ another pass` on a gate message, or `node src/cli/gate.mjs rerun <id>`, asks for a better review of the
@@ -69,6 +86,7 @@ channel no longer shows you:
 node src/cli/gate.mjs list                # gates waiting
 node src/cli/gate.mjs show <id>           # the summary as posted
 node src/cli/gate.mjs approve <id>
+node src/cli/gate.mjs pending <id>       # approve, and post it as a review the author cannot see yet
 node src/cli/gate.mjs reject <id> [reason]
 node src/cli/gate.mjs hold <id>
 node src/cli/gate.mjs rerun <id>          # another pass, same as the button

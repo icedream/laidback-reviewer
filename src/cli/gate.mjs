@@ -6,6 +6,7 @@
  * node src/cli/gate.mjs sync
  * node src/cli/gate.mjs show <id>
  * node src/cli/gate.mjs approve <id>
+ * node src/cli/gate.mjs pending <id>     approve, and post it as an unsubmitted review
  * node src/cli/gate.mjs reject <id> [reason]
  * node src/cli/gate.mjs hold <id>
  */
@@ -20,7 +21,7 @@ const STATE_DB = process.env.LAIDBACK_STATE_DB || "data/state.db";
 
 function usage(message) {
   if (message) console.error(message);
-  console.error("usage: node src/cli/gate.mjs list | sync | show <id> | approve <id> | reject <id> [reason] | hold <id> | rerun <id> | controls | redraw [id] [limit]");
+  console.error("usage: node src/cli/gate.mjs list | sync | show <id> | approve <id> | pending <id> | reject <id> [reason] | hold <id> | rerun <id> | controls | redraw [id] [limit]");
   process.exit(message ? 1 : 0);
 }
 
@@ -64,16 +65,21 @@ async function main() {
     return;
   }
 
-  if (command === "approve" || command === "reject") {
+  if (command === "approve" || command === "reject" || command === "pending") {
     const decided = store.decideGate({
       id,
-      state: command === "approve" ? "approved" : "rejected",
+      state: command === "reject" ? "rejected" : "approved",
+      mode: command === "pending" ? "pending" : null,
       decided_by: process.env.USER ?? "cli",
-      reason: rest.join(" ") || null,
+      reason: rest.join(" ") || (command === "pending" ? "post it unsubmitted" : null),
     });
-    console.log(`gate ${id} → ${decided.state}${decided.reason ? ` (${decided.reason})` : ""}`);
-    if (command === "approve" && decided.review_id) {
-      console.log(`review ${decided.review_id} is approved; post it with: node src/cli/post-approved.mjs ${decided.review_id}`);
+    console.log(`gate ${id} → ${decided.state}${decided.mode ? ` as a ${decided.mode} review` : ""}${decided.reason ? ` (${decided.reason})` : ""}`);
+    if (command !== "reject" && decided.review_id) {
+      console.log(
+        command === "pending"
+          ? `review ${decided.review_id} goes to GitHub unsubmitted: edit and submit it there, and it stays invisible to the author until you do`
+          : `review ${decided.review_id} is approved; post it with: node src/cli/post-approved.mjs ${decided.review_id}`,
+      );
     }
     return;
   }

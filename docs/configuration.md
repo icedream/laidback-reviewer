@@ -29,8 +29,8 @@ cp .env.dist .env                                 # fill in the GitHub token and
 ```yaml
 reviews:
   dryRun: true          # nothing is sent; the payload is printed and stored
-  approve: hint         # submit | hint | drop
-  requestChanges: hint  # submit | hint | drop
+  approve: hint         # submit | hint | drop | pending
+  requestChanges: hint  # submit | hint | drop | pending
   budgetMs: 1800000     # wall clock for one review; over it the session is cancelled
   maxComments: 25
   maxPerCycle: 2
