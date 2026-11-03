@@ -149,6 +149,27 @@ test("an approval that carries blockers, and a block that names none, are flagge
   assert.deepEqual(coherent.notes.filter((note) => /verdict/.test(note)), [], "a verdict and its blockers agreeing earns no note");
 });
 
+test("pending composes the real review and leaves it unsubmitted", () => {
+  const config = cfg();
+  config.reviews.approve = "pending";
+  const composed = composeReview({ proposal: proposal(), cfg: config, files, headSha: "abc" });
+
+  assert.equal(composed.action, "pending");
+  assert.equal(composed.event, "PENDING");
+  assert.equal("event" in composed.payload, false, "the request GitHub receives has no event key");
+  assert.doesNotMatch(composed.payload.body, /I would have approved/);
+  assert.match(composed.decisions.join("\n"), /verdict approve -> pending/);
+});
+
+test("a requested change can be left unsubmitted too", () => {
+  const config = cfg();
+  config.reviews.requestChanges = "pending";
+  const composed = composeReview({ proposal: proposal({ verdict: "request_changes", blocking: ["the pin is below trunk"] }), cfg: config, files, headSha: "abc" });
+
+  assert.equal(composed.event, "PENDING");
+  assert.equal("event" in composed.payload, false);
+});
+
 test("an empty proposal is refused instead of posting a blank review", () => {
   assert.throws(() => composeReview({ proposal: { body: "", verdict: "comment", comments: [] }, cfg: cfg(), files, headSha: "abc" }), /empty/);
 });

@@ -52,8 +52,8 @@ export const CONFIG_SCHEMA = record({
     maxPerCycle: integer({ def: 2, min: 1 }),
     maxComments: integer({ def: 25, min: 1 }),
     dryRun: bool({ def: true }),
-    approve: enumerated(["submit", "hint", "drop"], { def: "hint" }),
-    requestChanges: enumerated(["submit", "hint", "drop"], { def: "hint" }),
+    approve: enumerated(["submit", "hint", "drop", "pending"], { def: "hint" }),
+    requestChanges: enumerated(["submit", "hint", "drop", "pending"], { def: "hint" }),
     hintWording: record({
       approve: string({ def: "Verdict: I would have approved this." }),
       requestChanges: string({ def: "Verdict: I would have requested changes." }),

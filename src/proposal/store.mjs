@@ -141,7 +141,7 @@ export function openStore(path) {
       // present already
     }
   }
-  for (const column of ["session_file TEXT", "branch TEXT", "stack_key TEXT", "checkout_dir TEXT", "posting_at TEXT"]) {
+  for (const column of ["session_file TEXT", "branch TEXT", "stack_key TEXT", "checkout_dir TEXT", "posting_at TEXT", "post_state TEXT"]) {
     try {
       db.exec(`ALTER TABLE reviews ADD COLUMN ${column}`);
     } catch {
@@ -181,7 +181,7 @@ export function createStore(db) {
        VALUES (@review_id, @path, @start_line, @line, @body, @note)`,
     ),
     markPosted: db.prepare(
-      `UPDATE reviews SET posted = 1, github_review_id = @github_review_id, html_url = @html_url, posting_at = NULL, updated_at = @now
+      `UPDATE reviews SET posted = 1, post_state = @post_state, github_review_id = @github_review_id, html_url = @html_url, posting_at = NULL, updated_at = @now
        WHERE id = @id`,
     ),
     // One claimer per review, so a tap handled between cycles and the same approval seen by the next cycle
@@ -393,8 +393,8 @@ export function createStore(db) {
     /** The transcript of the newest pass over a head, which is where a requested rerun starts from. */
     latestSessionFor: (key) => statements.latestSessionFor.get(key),
     commentsFor: (reviewId) => statements.commentsFor.all({ review_id: reviewId }),
-    markPosted({ id, github_review_id, html_url }) {
-      statements.markPosted.run({ id, github_review_id, html_url, now: now() });
+    markPosted({ id, github_review_id, html_url, postState = "submitted" }) {
+      statements.markPosted.run({ id, github_review_id, html_url, post_state: postState, now: now() });
     },
     setArtifact({ id, path }) {
       statements.setArtifact.run({ id, path, now: now() });

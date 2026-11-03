@@ -23,7 +23,9 @@ export async function submitReview({ client, owner, repo, pr, payload, expectedH
 
   const review = await client.postReview(owner, repo, pr, {
     commit_id: expectedHeadSha,
-    event: payload.event,
+    // No event means GitHub creates the review unsubmitted, which is the whole point of the pending
+    // action: the comment anchors exist, and a human decides what the author eventually sees.
+    ...(payload.event && payload.event !== "PENDING" ? { event: payload.event } : {}),
     body: payload.body,
     comments: payload.comments.map((comment) => ({
       path: comment.path,

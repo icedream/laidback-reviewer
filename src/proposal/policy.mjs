@@ -286,6 +286,10 @@ export function composeReview({ proposal, cfg, files, headSha, owner, repo, bann
     event = VERDICT_EVENT[proposal.verdict];
   } else if (action === "hint") {
     verdictLine = verdictLineFor(proposal.verdict, action, cfg, proposal);
+  } else if (action === "pending") {
+    // The same review, left unsubmitted: GitHub shows it to the account that posted it and to nobody
+    // else, so the comments and their anchors exist for a human to edit before anything is public.
+    event = "PENDING";
   }
 
   // Citation form is mechanical, so it is fixed here rather than hoped for: a bare permalink inside a
@@ -332,7 +336,9 @@ export function composeReview({ proposal, cfg, files, headSha, owner, repo, bann
     throw new Error("proposed review is empty: no body and no comments");
   }
 
-  const payload = { commit_id: headSha, event, body, comments };
+  // An unsubmitted review is the same request with the event left out, which is how GitHub's own docs
+  // say to create one.
+  const payload = { commit_id: headSha, ...(event === "PENDING" ? {} : { event }), body, comments };
   return {
     payload,
     decisions,

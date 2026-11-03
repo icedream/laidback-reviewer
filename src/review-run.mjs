@@ -481,7 +481,7 @@ export async function runReview({ cfg, store, client, task, piAgentDir, artifact
   }
 
   const posted = await postComposed({ client, owner, repo, prNumber, headSha, proposal, cfg, composed, log });
-  store.markPosted({ id: reviewId, github_review_id: posted.id, html_url: posted.html_url });
+  store.markPosted({ id: reviewId, github_review_id: posted.id, html_url: posted.html_url, postState: posted.state === "PENDING" ? "pending" : "submitted" });
 
   return finish({ posted });
 }

@@ -163,7 +163,7 @@ test("an out-of-range enum is rejected with the allowed values", () => {
   const tree = baseConfig({ dir: "/tmp" });
   tree.reviews.approve = "always";
   const file = writeConfig(tree);
-  assert.throws(() => loadConfig({ path: file, env: {} }), /reviews\.approve: must be one of submit, hint, drop/);
+  assert.throws(() => loadConfig({ path: file, env: {} }), /reviews\.approve: must be one of submit, hint, drop, pending/);
 });
 
 test("a missing required key fails instead of running with a blank identity", () => {
