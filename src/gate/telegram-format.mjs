@@ -86,6 +86,9 @@ export function rerunRow(gateId) {
   return [{ text: "↻ another pass", callback_data: `rr:${gateId}` }];
 }
 
+/** Shipped with the row: on its own it reads like a fourth verdict word. */
+export const RERUN_NOTE = "\n\n↻ another pass runs a fresh review of this head and supersedes this proposal.";
+
 export function decisionRows(gateId) {
   return [
     { text: "✅ approve", callback_data: `ap:${gateId}` },

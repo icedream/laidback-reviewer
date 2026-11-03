@@ -16,7 +16,20 @@ import { createTelegramGate } from "../../src/gate/telegram.mjs";
 import { openStore } from "../../src/proposal/store.mjs";
 import { createTelegramFake } from "../fakes/telegram.mjs";
 
+const TELEGRAM_BLOCK = {
+  botTokenEnv: "TELEGRAM_BOT_TOKEN",
+  chatIdEnv: "TELEGRAM_CHAT_ID",
+  chatId: "",
+  allowUsersEnv: "LAIDBACK_TELEGRAM_USERS",
+  timeoutMs: 5_000,
+  longPollSeconds: 25,
+  maxFindingButtons: 8,
+  rerunButton: true,
+  notify: true,
+};
+
 function telegramCfg(overrides = {}) {
+  const { telegram: telegramOverrides, ...gateOverrides } = overrides;
   return {
     reviews: { dryRun: false },
     gate: {
@@ -26,18 +39,8 @@ function telegramCfg(overrides = {}) {
       timeoutHours: 24,
       onTimeout: "hold",
       maxPending: 5,
-      telegram: {
-        botTokenEnv: "TELEGRAM_BOT_TOKEN",
-        chatIdEnv: "TELEGRAM_CHAT_ID",
-        chatId: "",
-        allowUsersEnv: "LAIDBACK_TELEGRAM_USERS",
-        timeoutMs: 5_000,
-        longPollSeconds: 25,
-        maxFindingButtons: 8,
-        rerunButton: true,
-        notify: true,
-      },
-      ...overrides,
+      telegram: { ...TELEGRAM_BLOCK, ...(telegramOverrides ?? {}) },
+      ...gateOverrides,
     },
   };
 }
@@ -178,9 +181,52 @@ test("a numbered button opens that finding, and back restores the summary", asyn
     const back = f.telegram.messages.at(-1);
     assert.match(back.text, /Model verdict: request_changes/);
     assert.equal(back.text.split("\n").filter((line) => /^\d+\./.test(line)).length, 2);
+    assert.deepEqual(
+      back.reply_markup.inline_keyboard.map((row) => row.map((b) => b.callback_data)),
+      [
+        [`ap:${f.opened.gateId}`, `rj:${f.opened.gateId}`, `hd:${f.opened.gateId}`],
+        [`fw:${f.opened.gateId}:0`, `fw:${f.opened.gateId}:1`],
+        [`rr:${f.opened.gateId}`],
+      ],
+      "back restores the summary with every control it had, the ask for another pass included",
+    );
+    assert.match(back.text, /another pass/, "and the line that explains that button comes back too");
 
     // Reading a finding is not a decision.
     assert.equal(f.store.getGate(f.opened.gateId).state, "pending");
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("a rebuilt summary offers the same finding buttons the first one did", async () => {
+  const f = await fixture({ overrides: { telegram: { maxFindingButtons: 1 } } });
+  try {
+    const sent = f.telegram.messages.at(-1);
+    assert.deepEqual(
+      sent.reply_markup.inline_keyboard.map((row) => row.map((b) => b.callback_data)),
+      [
+        [`ap:${f.opened.gateId}`, `rj:${f.opened.gateId}`, `hd:${f.opened.gateId}`],
+        [`fw:${f.opened.gateId}:0`],
+        [`rr:${f.opened.gateId}`],
+      ],
+      "the cap leaves one finding button on the first render",
+    );
+
+    f.telegram.tap(`fw:${f.opened.gateId}:0`);
+    await f.gateTransport.readDecisions();
+    f.telegram.tap(`bk:${f.opened.gateId}`);
+    await f.gateTransport.readDecisions();
+    const back = f.telegram.messages.at(-1);
+    assert.deepEqual(
+      back.reply_markup.inline_keyboard.map((row) => row.map((b) => b.callback_data)),
+      [
+        [`ap:${f.opened.gateId}`, `rj:${f.opened.gateId}`, `hd:${f.opened.gateId}`],
+        [`fw:${f.opened.gateId}:0`],
+        [`rr:${f.opened.gateId}`],
+      ],
+      "and the same cap after going back, not the full comment list",
+    );
   } finally {
     f.cleanup();
   }

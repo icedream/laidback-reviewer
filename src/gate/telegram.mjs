@@ -7,7 +7,7 @@
  * reads on a phone without a wall of thread replies.
  */
 
-import { parseCallback, summaryHtml, findingHtml, decisionRows, findingRows, backRows, rerunRow, toastFor } from "./telegram-format.mjs";
+import { parseCallback, summaryHtml, findingHtml, decisionRows, findingRows, backRows, rerunRow, RERUN_NOTE, toastFor } from "./telegram-format.mjs";
 import { requestRerun } from "./gate.mjs";
 import { expirePending } from "./expire.mjs";
 
@@ -98,13 +98,20 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
     if (leaseHeld()?.pid === process.pid) store.setMeta(LEASE_KEY, "");
   }
 
+  /**
+   * Whether a gate's message carries the ask for another pass. It replaces a composed review, so a gate
+   * with no review attached has nothing to supersede. Every view of one gate has to answer the same way:
+   * a keyboard rebuilt without it strands the operator on a page where the control vanished.
+   */
+  const rerunOffered = (gate) => Boolean(gate?.review_id) && telegram.rerunButton !== false;
+
   async function post(gateId, summary, { reviewId = null } = {}) {
     const comments = reviewId ? store.commentsFor(reviewId) : [];
     const shown = comments.slice(0, telegram.maxFindingButtons);
-    const offersRerun = Boolean(reviewId) && telegram.rerunButton !== false;
+    const offersRerun = rerunOffered({ review_id: reviewId });
     let text = summaryHtml(summary, { comments: shown, maxFindings: telegram.maxFindingButtons });
     // The button alone reads like a fourth verdict word, so the message says what it does.
-    if (offersRerun) text += "\n\n↻ another pass runs a fresh review of this head and supersedes this proposal.";
+    if (offersRerun) text += RERUN_NOTE;
     if (text.length > TELEGRAM_TEXT_LIMIT) text = `${text.slice(0, TELEGRAM_TEXT_LIMIT - 1)}\n…`;
 
     const keyboard = [decisionRows(gateId), ...findingRows(gateId, shown.length), ...(offersRerun ? [rerunRow(gateId)] : [])];
@@ -146,13 +153,17 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
   async function editBack(gateId, cb, reviewId) {
     const gate = store.getGate(gateId);
     const comments = reviewId ? store.commentsFor(reviewId) : [];
+    const shown = comments.slice(0, telegram.maxFindingButtons);
+    const offersRerun = rerunOffered(gate);
+    let text = summaryHtml(gate?.summary ?? "", { comments: shown, maxFindings: telegram.maxFindingButtons });
+    if (offersRerun) text += RERUN_NOTE;
     await call("editMessageText", {
       chat_id: cb.message.chat.id,
       message_id: cb.message.message_id,
-      text: summaryHtml(gate?.summary ?? "", { comments: comments.slice(0, telegram.maxFindingButtons), maxFindings: telegram.maxFindingButtons }),
+      text: text.slice(0, TELEGRAM_TEXT_LIMIT),
       parse_mode: "HTML",
       link_preview_options: { is_disabled: true },
-      reply_markup: { inline_keyboard: [decisionRows(gateId), ...findingRows(gateId, comments.length)] },
+      reply_markup: { inline_keyboard: [decisionRows(gateId), ...findingRows(gateId, shown.length), ...(offersRerun ? [rerunRow(gateId)] : [])] },
     });
   }
 
@@ -294,7 +305,7 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
       if (!gate.kind.endsWith(":telegram") || !gate.channel_msg_id) continue;
       const comments = gate.review_id ? store.commentsFor(gate.review_id) : [];
       const shown = comments.slice(0, telegram.maxFindingButtons);
-      const offersRerun = Boolean(gate.review_id) && telegram.rerunButton !== false;
+      const offersRerun = rerunOffered(gate);
       const keyboard = [decisionRows(gate.id), ...findingRows(gate.id, shown.length), ...(offersRerun ? [rerunRow(gate.id)] : [])];
       try {
         await call("editMessageReplyMarkup", {
@@ -335,11 +346,11 @@ export function createTelegramGate({ cfg, store, token, chatId, allowUsers = [],
     if (!gate?.channel_msg_id) return false;
     const comments = gate.review_id ? store.commentsFor(gate.review_id) : [];
     const shown = comments.slice(0, telegram.maxFindingButtons);
-    const offersRerun = Boolean(gate.review_id) && telegram.rerunButton !== false;
+    const offersRerun = rerunOffered(gate);
     let text = summaryHtml(gate.summary ?? "", { comments: shown, maxFindings: telegram.maxFindingButtons });
     const keyboard = [];
     if (gate.state === "pending") {
-      if (offersRerun) text += "\n\n↻ another pass runs a fresh review of this head and supersedes this proposal.";
+      if (offersRerun) text += RERUN_NOTE;
       keyboard.push(decisionRows(gate.id), ...findingRows(gate.id, shown.length));
       if (offersRerun) keyboard.push(rerunRow(gate.id));
     } else {
